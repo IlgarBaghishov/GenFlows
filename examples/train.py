@@ -1,6 +1,7 @@
 import sys
 import os
 import torch
+from torch.utils.data import TensorDataset
 
 # Add package root to Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -46,16 +47,40 @@ def main():
     torch.save(model_fm.state_dict(), "checkpoints/flow_matching.pt")
     plot_loss(loss_fm, "Flow Matching Training Loss", "results/loss_flow_matching.png")
 
-    # --- 3. Rectified Flow (2-Rectified Flow) ---
-    print("\n--- Generating Reflow Pairs from Flow Matching model ---")
+    # --- 3a. Rectified Flow (forward pairs only) ---
+    print("\n--- Generating Forward Reflow Pairs from Flow Matching model ---")
     reflow_generator = RectifiedFlow(model_fm)
-    paired_dataset = reflow_generator.generate_reflow_pairs(train_loader, device, n_steps=100)
-    print("\n--- Training Rectified Flow (2-Rectified Flow) ---")
+    paired_fwd = reflow_generator.generate_reflow_pairs(train_loader, device, n_steps=100)
+    print("\n--- Training Rectified Flow Forward (2-Rectified Flow) ---")
     model_rf = UNet(in_channels=1, num_time_embs=1).to(device)
     method_rf = RectifiedFlow(model_rf)
-    loss_rf = train_reflow(method_rf, paired_dataset, epochs=epochs_rf, device=device)
+    loss_rf = train_reflow(method_rf, paired_fwd, epochs=epochs_rf, device=device)
     torch.save(model_rf.state_dict(), "checkpoints/rectified_flow.pt")
-    plot_loss(loss_rf, "Rectified Flow Training Loss", "results/loss_rectified_flow.png")
+    plot_loss(loss_rf, "Rectified Flow Forward Training Loss", "results/loss_rectified_flow.png")
+
+    # --- 3b. Rectified Flow (backward pairs only) ---
+    print("\n--- Generating Backward Reflow Pairs from Flow Matching model ---")
+    paired_bwd = reflow_generator.generate_reflow_pairs_backward(train_loader, device, n_steps=100)
+    print("\n--- Training Rectified Flow Backward (2-Rectified Flow) ---")
+    model_rf_bwd = UNet(in_channels=1, num_time_embs=1).to(device)
+    method_rf_bwd = RectifiedFlow(model_rf_bwd)
+    loss_rf_bwd = train_reflow(method_rf_bwd, paired_bwd, epochs=epochs_rf, device=device)
+    torch.save(model_rf_bwd.state_dict(), "checkpoints/rectified_flow_bwd.pt")
+    plot_loss(loss_rf_bwd, "Rectified Flow Backward Training Loss", "results/loss_rectified_flow_bwd.png")
+
+    # --- 3c. Rectified Flow (bidirectional: forward + backward pairs) ---
+    paired_bidir = TensorDataset(
+        torch.cat([paired_fwd.tensors[0], paired_bwd.tensors[0]]),
+        torch.cat([paired_fwd.tensors[1], paired_bwd.tensors[1]]),
+        torch.cat([paired_fwd.tensors[2], paired_bwd.tensors[2]]),
+    )
+    print(f"  Forward: {len(paired_fwd)}, Backward: {len(paired_bwd)}, Total: {len(paired_bidir)}")
+    print("\n--- Training Rectified Flow Bidirectional (2-Rectified Flow) ---")
+    model_rf_bidir = UNet(in_channels=1, num_time_embs=1).to(device)
+    method_rf_bidir = RectifiedFlow(model_rf_bidir)
+    loss_rf_bidir = train_reflow(method_rf_bidir, paired_bidir, epochs=epochs_rf, device=device)
+    torch.save(model_rf_bidir.state_dict(), "checkpoints/rectified_flow_bidir.pt")
+    plot_loss(loss_rf_bidir, "Rectified Flow Bidir Training Loss", "results/loss_rectified_flow_bidir.png")
 
     # --- 4. MeanFlow (Standard CFG) ---
     print("\n--- Training MeanFlow (Standard CFG) ---")

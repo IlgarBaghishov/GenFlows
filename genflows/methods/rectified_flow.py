@@ -33,19 +33,18 @@ class RectifiedFlow(FlowMatching):
 
     @torch.no_grad()
     def generate_reflow_pairs(self, dataloader, device, n_steps=100):
-        """Generate coupled (noise, generated_data, label) pairs via ODE integration.
+        """Generate coupled (noise, generated_data, label) pairs via forward ODE.
 
         For each training sample x1, sample noise x0, then integrate the ODE
         from x0 (t=0) to t=1 to produce x1_generated. The pair (x0, x1_generated)
         forms a coupled dataset for the next reflow round.
+        Noise marginal is exact; data marginal is approximate.
         """
         self.model.eval()
 
         all_x0 = []
         all_x1 = []
         all_labels = []
-
-        null_labels_cache = {}
 
         for x1, labels in dataloader:
             x1 = x1.to(device)
@@ -64,6 +63,46 @@ class RectifiedFlow(FlowMatching):
 
             all_x0.append(x0.cpu())
             all_x1.append(x.cpu())
+            all_labels.append(labels.cpu())
+
+        self.model.train()
+
+        return TensorDataset(
+            torch.cat(all_x0),
+            torch.cat(all_x1),
+            torch.cat(all_labels),
+        )
+
+    @torch.no_grad()
+    def generate_reflow_pairs_backward(self, dataloader, device, n_steps=100):
+        """Generate coupled (generated_noise, data, label) pairs via backward ODE.
+
+        For each training sample x1, integrate the ODE backward from x1 (t=1)
+        to t=0 to produce x0_generated. The pair (x0_generated, x1) forms a
+        coupled dataset where the data marginal is exact and the noise marginal
+        is approximate.
+        """
+        self.model.eval()
+
+        all_x0 = []
+        all_x1 = []
+        all_labels = []
+
+        for x1, labels in dataloader:
+            x1 = x1.to(device)
+            labels = labels.to(device)
+            batch_size = x1.shape[0]
+
+            # Integrate ODE from t=1 to t=0 (backward)
+            x = x1.clone()
+            dt = 1.0 / n_steps
+            for i in range(n_steps):
+                t = torch.full((batch_size,), 1.0 - i * dt, device=device)
+                v_pred = self.model(x, t, labels)
+                x = x - v_pred * dt
+
+            all_x0.append(x.cpu())
+            all_x1.append(x1.cpu())
             all_labels.append(labels.cpu())
 
         self.model.train()

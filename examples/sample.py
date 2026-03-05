@@ -29,7 +29,7 @@ def load_method(name, ckpt_path, device):
         model = UNet(in_channels=1, num_time_embs=1).to(device)
         model.load_state_dict(torch.load(ckpt_path, map_location=device, weights_only=True))
         return FlowMatching(model)
-    elif name == 'rectified_flow':
+    elif name in ('rectified_flow', 'rectified_flow_bwd', 'rectified_flow_bidir'):
         model = UNet(in_channels=1, num_time_embs=1).to(device)
         model.load_state_dict(torch.load(ckpt_path, map_location=device, weights_only=True))
         return RectifiedFlow(model)
@@ -65,6 +65,8 @@ def main():
         'diffusion': 'checkpoints/diffusion.pt',
         'flow_matching': 'checkpoints/flow_matching.pt',
         'rectified_flow': 'checkpoints/rectified_flow.pt',
+        'rectified_flow_bwd': 'checkpoints/rectified_flow_bwd.pt',
+        'rectified_flow_bidir': 'checkpoints/rectified_flow_bidir.pt',
         'meanflow_std': 'checkpoints/meanflow_std.pt',
         'meanflow_embed': 'checkpoints/meanflow_embed.pt',
     }
@@ -106,6 +108,16 @@ def main():
             samples, t = timed_sample(methods['rectified_flow'], shape, device, labels, n_steps)
             print(f"RF    {n_steps:>4} steps: {t:.2f}s")
             plot_samples(samples, f"Rectified Flow Samples ({n_steps} steps)", f"results/samples_rectified_flow_{n_steps}steps.png", nrow=n_per_digit)
+
+        if 'rectified_flow_bwd' in methods:
+            samples, t = timed_sample(methods['rectified_flow_bwd'], shape, device, labels, n_steps)
+            print(f"RF-B  {n_steps:>4} steps: {t:.2f}s")
+            plot_samples(samples, f"Rectified Flow Backward ({n_steps} steps)", f"results/samples_rectified_flow_bwd_{n_steps}steps.png", nrow=n_per_digit)
+
+        if 'rectified_flow_bidir' in methods:
+            samples, t = timed_sample(methods['rectified_flow_bidir'], shape, device, labels, n_steps)
+            print(f"RF-BD {n_steps:>4} steps: {t:.2f}s")
+            plot_samples(samples, f"Rectified Flow Bidir ({n_steps} steps)", f"results/samples_rectified_flow_bidir_{n_steps}steps.png", nrow=n_per_digit)
 
         if 'meanflow_std' in methods:
             samples, t = timed_sample(methods['meanflow_std'], shape, device, labels, n_steps)
