@@ -2,29 +2,29 @@
 
 ## Project Overview
 
-Simple implementations of four generative modeling methods for MNIST digit generation:
-- **Diffusion** (DDPM + DDIM sampling)
+Simple implementations of generative modeling methods for MNIST digit generation:
+- **Diffusion** (DDPM + DDIM sampling, with x0-clipping for stable CFG)
 - **Flow Matching** (Optimal Transport)
 - **MeanFlow** (novel method using mean velocity — paper included in `meanflow_paper_latex/`)
-- **Rectified Flow** (Liu et al., "Flow Straight and Fast" — reflow for straighter ODE paths)
+- **Rectified Flow** (Liu et al., "Flow Straight and Fast" — forward, backward, bidirectional reflow variants)
 
 ## Project Structure
 
 ```
-genflows/           # Main package (~350 lines total)
+genflows/           # Main package (~700 lines total)
 ├── models/unet.py     # UNet with sinusoidal time embeddings (supports multiple time inputs for MeanFlow)
 ├── methods/
 │   ├── diffusion.py   # Diffusion: noise prediction, DDPM/DDIM sampling, 1000-step schedule
 │   ├── flow_matching.py  # Flow Matching: velocity field prediction, Euler integration
 │   ├── meanflow.py    # MeanFlow: mean velocity with JVP-based training
-│   └── rectified_flow.py # Rectified Flow: reflow with coupled (noise, data) pairs
+│   └── rectified_flow.py # Rectified Flow: forward/backward/bidirectional reflow with coupled pairs
 └── utils/
     ├── data.py        # MNIST loading (padded to 32x32, normalized to [-1,1])
-    ├── training.py    # Training loop (AdamW, cosine LR, grad clipping, EMA) + train_reflow for paired data
+    ├── training.py    # Training loop (AdamW, cosine LR, grad clipping, EMA with target network) + train_reflow
     └── plotting.py    # Sample grids and loss curves
 
 examples/
-├── train.py           # Trains all 5 methods, saves checkpoints to checkpoints/ and loss curves to results/
+├── train.py           # Trains all 8 models, saves checkpoints to checkpoints/ and loss curves to results/
 ├── sample.py          # Loads checkpoints, generates samples with wall-clock timing, saves to results/
 └── compare_models.py  # Legacy all-in-one script (trains + samples in one run)
 
@@ -34,16 +34,16 @@ meanflow.pdf           # Compiled paper
 
 ## Dependencies
 
-PyTorch, torchvision, matplotlib, tqdm. No requirements.txt — install manually:
+PyTorch, torchvision, matplotlib, tqdm, accelerate. No requirements.txt — install manually:
 ```bash
-pip install torch torchvision matplotlib tqdm
+pip install torch torchvision matplotlib tqdm accelerate
 ```
 
 ## Running
 
 **Separate training and sampling (recommended):**
 ```bash
-python examples/train.py     # Train all 5 methods, save checkpoints to checkpoints/
+python examples/train.py     # Train all 8 models, save checkpoints to checkpoints/
 python examples/sample.py    # Load checkpoints, generate samples with timing to results/
 ```
 
@@ -52,19 +52,23 @@ python examples/sample.py    # Load checkpoints, generate samples with timing to
 python examples/compare_models.py
 ```
 
-Training saves checkpoints (`checkpoints/diffusion.pt`, `flow_matching.pt`, `rectified_flow.pt`, `meanflow_std.pt`, `meanflow_embed.pt`) so sampling can be re-run without retraining. Samples are generated at step counts [1, 5, 10, 50, 100, 500, 1000]. For the Diffusion method, both DDPM and DDIM samplers are run. Results saved to `results/`.
+Training saves 8 checkpoints to `checkpoints/`: `diffusion.pt`, `flow_matching.pt`, `rectified_flow.pt`, `rectified_flow_rand.pt`, `rectified_flow_bwd.pt`, `rectified_flow_bidir.pt`, `meanflow_std.pt`, `meanflow_embed.pt`. Sampling can be re-run without retraining. Samples are generated at step counts [1, 5, 10, 50, 100, 500, 1000]. For the Diffusion method, both DDPM and DDIM samplers are run. Results saved to `results/`. Multi-GPU training is supported via HuggingFace Accelerate (`accelerate launch examples/train.py`).
 
 ## Key Implementation Details
 
 - All models use the same UNet architecture (hidden dims [64, 128, 256])
 - MeanFlow's UNet takes `num_time_embs=2` (for t and t-r); others use 1
-- MeanFlow training uses `torch.func.jvp` and `torch.func.functional_call` for Jacobian-vector products
+- MeanFlow training uses `torch.func.jvp` and `torch.func.functional_call` for Jacobian-vector products; JVP target uses EMA shadow weights as a target network for training stability
 - Images are 32x32 (28x28 MNIST padded by 2px each side) for clean UNet downsampling/upsampling
 - Batch size: 128, Optimizer: AdamW with lr=1e-3, cosine annealing LR schedule, gradient clipping (max_norm=1.0), EMA (decay=0.9999)
-- `Diffusion` class supports both DDPM (stochastic) and DDIM (deterministic when `eta=0`) sampling via the `sampler` argument; both use proper posterior variance for arbitrary step counts (strided timesteps)
+- `Diffusion` class supports both DDPM (stochastic) and DDIM (deterministic when `eta=0`) sampling via the `sampler` argument; both use proper posterior variance for arbitrary step counts (strided timesteps). DDIM clips x0 predictions to [-1,1] and recomputes eps for consistency (prevents CFG drift)
 - Diffusion uses linear beta schedule (1e-4 to 0.02, 1000 steps)
 - UNet mid-blocks have time conditioning (GroupNorm + time embedding injection), matching the Down/UpBlock pattern
-- Rectified Flow inherits from FlowMatching; 2-Rectified Flow uses coupled pairs generated by ODE integration of the trained FM model via `generate_reflow_pairs`, then trains a new model on these pairs using `train_reflow`
+- Rectified Flow inherits from FlowMatching; 2-Rectified Flow uses coupled pairs generated by ODE integration of the trained FM model. Three pair generation modes:
+  - **Forward** (`generate_reflow_pairs`): exact noise → approximate data
+  - **Backward** (`generate_reflow_pairs_backward`): approximate noise ← exact data
+  - **Bidirectional**: concatenation of forward + backward pairs
+  - Models can be trained from random init (300 epochs) or warm-started from FM weights (150 epochs)
 - **Classifier-Free Guidance (CFG)**: All methods support class-conditional generation
   - UNet has a learned class embedding (10 digits + 1 null token)
   - During training, labels are randomly dropped with 10% probability (replaced with null token)

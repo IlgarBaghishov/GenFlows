@@ -1,6 +1,6 @@
 # GenFlows
 
-A unified implementation of four modern generative modeling methods, trained and compared side-by-side on MNIST with a shared architecture.
+A unified implementation of modern generative modeling methods, trained and compared side-by-side on MNIST with a shared architecture.
 
 | Method | What it learns | Sampling | Key idea |
 |---|---|---|---|
@@ -9,23 +9,28 @@ A unified implementation of four modern generative modeling methods, trained and
 | **Rectified Flow** | Velocity field (straighter) | Euler ODE integration | Reflow: straighten ODE paths for fewer-step generation |
 | **MeanFlow** | Mean velocity | Single-step capable | JVP-based training enables one-step generation |
 
-All four methods share the same UNet backbone, the same data pipeline, and the same training loop -- making this a true apples-to-apples comparison. Every method supports class-conditional generation with classifier-free guidance (CFG).
+All methods share the same UNet backbone, the same data pipeline, and the same training loop -- making this a true apples-to-apples comparison. Every method supports class-conditional generation with classifier-free guidance (CFG). Training supports multi-GPU/multi-node via HuggingFace Accelerate.
 
 ## Why this repo?
 
 Most generative modeling repos implement a single method in isolation. If you want to understand how diffusion, flow matching, rectified flow, and MeanFlow actually compare, you'd need to stitch together 4+ separate codebases with different architectures, different data preprocessing, and different training setups -- making any comparison meaningless.
 
-This repo puts all four methods on equal footing: same UNet, same optimizer, same data. The entire package is ~565 lines of PyTorch. You can train everything, then re-sample as many times as you want without retraining.
+This repo puts all methods on equal footing: same UNet, same optimizer, same data. The entire package is ~700 lines of PyTorch. You can train everything, then re-sample as many times as you want without retraining.
 
 ## Quick start
 
 ```bash
-pip install torch torchvision matplotlib tqdm
+pip install torch torchvision matplotlib tqdm accelerate
 ```
 
-**Train all models and save checkpoints:**
+**Train all 8 models and save checkpoints:**
 ```bash
 python examples/train.py
+```
+
+**Multi-GPU training via Accelerate:**
+```bash
+accelerate launch examples/train.py
 ```
 
 **Generate samples from saved checkpoints (no retraining needed):**
@@ -33,7 +38,7 @@ python examples/train.py
 python examples/sample.py
 ```
 
-Training saves checkpoints to `checkpoints/` and loss curves to `results/`. Sampling loads the checkpoints, generates 10x10 class-conditional grids (rows = digits 0-9) at various step counts (1, 5, 10, 50, 100, 500, 1000), prints wall-clock timing for each, and saves everything to `results/`.
+Training saves 8 checkpoints to `checkpoints/` and loss curves to `results/`. Sampling loads the checkpoints, generates 10x10 class-conditional grids (rows = digits 0-9) at various step counts (1, 5, 10, 50, 100, 500, 1000), prints wall-clock timing for each, and saves everything to `results/`.
 
 ## Project structure
 
@@ -44,10 +49,10 @@ genflows/
 │   ├── diffusion.py        # DDPM + DDIM sampling (noise prediction, linear beta schedule)
 │   ├── flow_matching.py    # Flow Matching (velocity prediction, Euler integration)
 │   ├── meanflow.py         # MeanFlow (mean velocity, JVP-based training, 1-step capable)
-│   └── rectified_flow.py   # Rectified Flow (reflow with coupled pairs for straighter paths)
+│   └── rectified_flow.py   # Rectified Flow (forward/backward/bidirectional reflow)
 └── utils/
     ├── data.py             # MNIST loading (padded to 32x32, normalized to [-1,1])
-    ├── training.py         # Training loops (standard + reflow)
+    ├── training.py         # Training loops with EMA target network support
     └── plotting.py         # Sample grids and loss curves
 
 examples/
@@ -60,7 +65,7 @@ examples/
 
 ### Diffusion (DDPM/DDIM)
 
-Learns to predict the noise added at each timestep. Supports two samplers: DDPM (stochastic, with proper posterior variance for arbitrary step counts) and DDIM (deterministic when eta=0, allows fewer steps). Uses a linear beta schedule with 1000 steps.
+Learns to predict the noise added at each timestep. Supports two samplers: DDPM (stochastic, with proper posterior variance for arbitrary step counts) and DDIM (deterministic when eta=0, allows fewer steps). DDIM clips x0 predictions and recomputes eps for consistency, preventing drift under classifier-free guidance. Uses a linear beta schedule with 1000 steps.
 
 ### Flow Matching
 
@@ -68,11 +73,16 @@ Learns a velocity field that transports samples from a standard Gaussian to the 
 
 ### Rectified Flow (2-Rectified Flow)
 
-Starts from a trained Flow Matching model. Generates coupled (noise, data) pairs by integrating the ODE, then trains a new model on these pairs. The "reflow" operation straightens the ODE trajectories, enabling high-quality generation with fewer steps.
+Starts from a trained Flow Matching model. Generates coupled (noise, data) pairs by integrating the ODE, then trains a new model on these pairs. The "reflow" operation straightens the ODE trajectories, enabling high-quality generation with fewer steps. Four variants are trained:
+
+- **Forward (random init)**: fresh model trained on forward ODE pairs (300 epochs)
+- **Forward (warm start)**: initialized from FM weights, trained on forward pairs (150 epochs)
+- **Backward (warm start)**: initialized from FM weights, trained on backward ODE pairs (exact data → approximate noise)
+- **Bidirectional (warm start)**: trained on concatenated forward + backward pairs
 
 ### MeanFlow
 
-Learns the *mean* velocity over a time interval rather than the instantaneous velocity. Training uses Jacobian-vector products (`torch.func.jvp`) to compute the MeanFlow identity target. Supports two CFG modes:
+Learns the *mean* velocity over a time interval rather than the instantaneous velocity. Training uses Jacobian-vector products (`torch.func.jvp`) to compute the MeanFlow identity target. The JVP target uses EMA shadow weights as a target network for stable training. Supports two CFG modes:
 
 - **Standard CFG**: guidance applied at sampling time (2 network evaluations per step)
 - **Embedded CFG**: guidance baked into the training target (Section 4.2 of the paper), enabling single-step generation with just 1 network evaluation
@@ -82,7 +92,7 @@ Learns the *mean* velocity over a time interval rather than the instantaneous ve
 - **Architecture**: UNet with hidden dims [64, 128, 256], GroupNorm, SiLU activations, sinusoidal positional embeddings, time-conditioned mid-blocks. MeanFlow uses `num_time_embs=2` (for t and t-r); all others use 1.
 - **Class conditioning**: Learned embedding for 10 digit classes + 1 null token. Labels randomly dropped with 10% probability during training for CFG.
 - **CFG sampling**: `output = uncond + cfg_scale * (cond - uncond)`, default `cfg_scale=3.0`
-- **Training**: AdamW optimizer, lr=1e-3 with cosine annealing, gradient clipping (max_norm=1.0), EMA (decay=0.9999)
+- **Training**: AdamW optimizer, lr=1e-3 with cosine annealing, gradient clipping (max_norm=1.0), EMA (decay=0.9999). EMA shadow weights double as a target network for MeanFlow's JVP computation
 - **Data**: MNIST padded from 28x28 to 32x32 (2px each side) for clean UNet downsampling/upsampling
 
 ## References
