@@ -41,6 +41,7 @@ def train_model(method, dataloader, epochs=5, lr=1e-3, ema_decay=0.9999, acceler
 
     method.model.train()
     ema = EMA(method.model, decay=ema_decay)
+    use_ema_target = hasattr(method, 'compute_loss') and 'target_params' in method.compute_loss.__code__.co_varnames
 
     epoch_losses = []
 
@@ -50,7 +51,11 @@ def train_model(method, dataloader, epochs=5, lr=1e-3, ema_decay=0.9999, acceler
         pbar = tqdm(dataloader, desc=f"Epoch {epoch+1}/{epochs}", disable=not accelerator.is_main_process)
         for x, labels in pbar:
             optimizer.zero_grad()
-            loss = method.compute_loss(x, labels)
+            # For MeanFlow, pass EMA shadow weights as stable JVP target (target network)
+            if use_ema_target:
+                loss = method.compute_loss(x, labels, target_params=ema.shadow)
+            else:
+                loss = method.compute_loss(x, labels)
             accelerator.backward(loss)
             torch.nn.utils.clip_grad_norm_(method.model.parameters(), max_norm=1.0)
             optimizer.step()

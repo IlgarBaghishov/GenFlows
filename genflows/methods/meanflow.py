@@ -9,7 +9,7 @@ class MeanFlow:
         self.omega = omega        # guidance scale for embedded CFG (Eq. 21)
         self.kappa = kappa        # mixing scale for improved embedded CFG (Eq. 20)
 
-    def compute_loss(self, x_data, labels):
+    def compute_loss(self, x_data, labels, target_params=None):
         device = x_data.device
         b = x_data.shape[0]
 
@@ -58,7 +58,14 @@ class MeanFlow:
             # Unwrap DDP model for torch.func compatibility (JVP is no_grad target-only,
             # so no distributed sync is lost — the trainable forward pass above still uses DDP)
             raw_model = self.model.module if hasattr(self.model, 'module') else self.model
-            params = dict(raw_model.named_parameters())
+            # Use EMA target params for stable JVP target (like a target network),
+            # fall back to live weights if no target params provided
+            if target_params is not None:
+                # Strip 'module.' prefix from DDP-wrapped EMA keys to match raw_model
+                prefix = 'module.'
+                params = {(k[len(prefix):] if k.startswith(prefix) else k): v for k, v in target_params.items()}
+            else:
+                params = dict(raw_model.named_parameters())
             buffers = dict(raw_model.named_buffers())
 
             def stateless_u_fn(z_in, t_in, r_in):
