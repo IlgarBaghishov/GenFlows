@@ -26,9 +26,9 @@ def main():
     os.makedirs("results", exist_ok=True)
 
     # Per-method epoch counts tuned for MNIST
-    epochs_ddpm = 400
+    epochs_ddpm = 300
     epochs_fm = 300
-    epochs_rf = 100
+    epochs_rf = 150
     epochs_mf = 600
 
     # --- 1. Diffusion (DDPM) ---
@@ -47,40 +47,55 @@ def main():
     torch.save(model_fm.state_dict(), "checkpoints/flow_matching.pt")
     plot_loss(loss_fm, "Flow Matching Training Loss", "results/loss_flow_matching.png")
 
-    # --- 3a. Rectified Flow (forward pairs only) ---
+    # --- 3. Generate Reflow Pairs ---
     print("\n--- Generating Forward Reflow Pairs from Flow Matching model ---")
     reflow_generator = RectifiedFlow(model_fm)
     paired_fwd = reflow_generator.generate_reflow_pairs(train_loader, device, n_steps=100)
-    print("\n--- Training Rectified Flow Forward (2-Rectified Flow) ---")
-    model_rf = UNet(in_channels=1, num_time_embs=1).to(device)
-    method_rf = RectifiedFlow(model_rf)
-    loss_rf = train_reflow(method_rf, paired_fwd, epochs=epochs_rf, device=device)
-    torch.save(model_rf.state_dict(), "checkpoints/rectified_flow.pt")
-    plot_loss(loss_rf, "Rectified Flow Forward Training Loss", "results/loss_rectified_flow.png")
-
-    # --- 3b. Rectified Flow (backward pairs only) ---
     print("\n--- Generating Backward Reflow Pairs from Flow Matching model ---")
     paired_bwd = reflow_generator.generate_reflow_pairs_backward(train_loader, device, n_steps=100)
-    print("\n--- Training Rectified Flow Backward (2-Rectified Flow) ---")
-    model_rf_bwd = UNet(in_channels=1, num_time_embs=1).to(device)
-    method_rf_bwd = RectifiedFlow(model_rf_bwd)
-    loss_rf_bwd = train_reflow(method_rf_bwd, paired_bwd, epochs=epochs_rf, device=device)
-    torch.save(model_rf_bwd.state_dict(), "checkpoints/rectified_flow_bwd.pt")
-    plot_loss(loss_rf_bwd, "Rectified Flow Backward Training Loss", "results/loss_rectified_flow_bwd.png")
-
-    # --- 3c. Rectified Flow (bidirectional: forward + backward pairs) ---
     paired_bidir = TensorDataset(
         torch.cat([paired_fwd.tensors[0], paired_bwd.tensors[0]]),
         torch.cat([paired_fwd.tensors[1], paired_bwd.tensors[1]]),
         torch.cat([paired_fwd.tensors[2], paired_bwd.tensors[2]]),
     )
     print(f"  Forward: {len(paired_fwd)}, Backward: {len(paired_bwd)}, Total: {len(paired_bidir)}")
-    print("\n--- Training Rectified Flow Bidirectional (2-Rectified Flow) ---")
+
+    fm_weights = model_fm.state_dict()
+
+    # --- 3a. Rectified Flow Forward (random init, 300 epochs) ---
+    print("\n--- Training Rectified Flow Forward - Random Init (2-Rectified Flow) ---")
+    model_rf_rand = UNet(in_channels=1, num_time_embs=1).to(device)
+    method_rf_rand = RectifiedFlow(model_rf_rand)
+    loss_rf_rand = train_reflow(method_rf_rand, paired_fwd, epochs=epochs_fm, device=device)
+    torch.save(model_rf_rand.state_dict(), "checkpoints/rectified_flow_rand.pt")
+    plot_loss(loss_rf_rand, "Rectified Flow Fwd (Random Init) Training Loss", "results/loss_rectified_flow_rand.png")
+
+    # --- 3b. Rectified Flow Forward (warm-started from FM) ---
+    print("\n--- Training Rectified Flow Forward - Warm Start (2-Rectified Flow) ---")
+    model_rf = UNet(in_channels=1, num_time_embs=1).to(device)
+    model_rf.load_state_dict(fm_weights)
+    method_rf = RectifiedFlow(model_rf)
+    loss_rf = train_reflow(method_rf, paired_fwd, epochs=epochs_rf, device=device)
+    torch.save(model_rf.state_dict(), "checkpoints/rectified_flow.pt")
+    plot_loss(loss_rf, "Rectified Flow Fwd (Warm Start) Training Loss", "results/loss_rectified_flow.png")
+
+    # --- 3c. Rectified Flow Backward (warm-started from FM) ---
+    print("\n--- Training Rectified Flow Backward - Warm Start (2-Rectified Flow) ---")
+    model_rf_bwd = UNet(in_channels=1, num_time_embs=1).to(device)
+    model_rf_bwd.load_state_dict(fm_weights)
+    method_rf_bwd = RectifiedFlow(model_rf_bwd)
+    loss_rf_bwd = train_reflow(method_rf_bwd, paired_bwd, epochs=epochs_rf, device=device)
+    torch.save(model_rf_bwd.state_dict(), "checkpoints/rectified_flow_bwd.pt")
+    plot_loss(loss_rf_bwd, "Rectified Flow Bwd (Warm Start) Training Loss", "results/loss_rectified_flow_bwd.png")
+
+    # --- 3d. Rectified Flow Bidirectional (warm-started from FM) ---
+    print("\n--- Training Rectified Flow Bidirectional - Warm Start (2-Rectified Flow) ---")
     model_rf_bidir = UNet(in_channels=1, num_time_embs=1).to(device)
+    model_rf_bidir.load_state_dict(fm_weights)
     method_rf_bidir = RectifiedFlow(model_rf_bidir)
     loss_rf_bidir = train_reflow(method_rf_bidir, paired_bidir, epochs=epochs_rf, device=device)
     torch.save(model_rf_bidir.state_dict(), "checkpoints/rectified_flow_bidir.pt")
-    plot_loss(loss_rf_bidir, "Rectified Flow Bidir Training Loss", "results/loss_rectified_flow_bidir.png")
+    plot_loss(loss_rf_bidir, "Rectified Flow Bidir (Warm Start) Training Loss", "results/loss_rectified_flow_bidir.png")
 
     # --- 4. MeanFlow (Standard CFG) ---
     print("\n--- Training MeanFlow (Standard CFG) ---")
