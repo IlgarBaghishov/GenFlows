@@ -1,6 +1,7 @@
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+from accelerate import Accelerator
 
 
 class EMA:
@@ -27,10 +28,17 @@ class EMA:
             p.data.copy_(self.shadow[name])
 
 
-def train_model(method, dataloader, epochs=5, lr=1e-3, device='cuda', ema_decay=0.9999):
+def train_model(method, dataloader, epochs=5, lr=1e-3, ema_decay=0.9999, accelerator=None):
+    if accelerator is None:
+        accelerator = Accelerator()
+
     optimizer = torch.optim.AdamW(method.model.parameters(), lr=lr)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
-    method.model.to(device)
+
+    method.model, optimizer, dataloader, scheduler = accelerator.prepare(
+        method.model, optimizer, dataloader, scheduler
+    )
+
     method.model.train()
     ema = EMA(method.model, decay=ema_decay)
 
@@ -38,33 +46,42 @@ def train_model(method, dataloader, epochs=5, lr=1e-3, device='cuda', ema_decay=
 
     for epoch in range(epochs):
         total_loss = 0
-        pbar = tqdm(dataloader, desc=f"Epoch {epoch+1}/{epochs}")
+        num_batches = 0
+        pbar = tqdm(dataloader, desc=f"Epoch {epoch+1}/{epochs}", disable=not accelerator.is_main_process)
         for x, labels in pbar:
-            x = x.to(device)
-            labels = labels.to(device)
             optimizer.zero_grad()
             loss = method.compute_loss(x, labels)
-            loss.backward()
+            accelerator.backward(loss)
             torch.nn.utils.clip_grad_norm_(method.model.parameters(), max_norm=1.0)
             optimizer.step()
             ema.update(method.model)
 
             total_loss += loss.item()
+            num_batches += 1
             pbar.set_postfix({'loss': f"{loss.item():.4f}"})
 
         scheduler.step()
-        epoch_losses.append(total_loss / len(dataloader))
+        epoch_losses.append(total_loss / num_batches)
 
     ema.apply(method.model)
+    # Unwrap DDP model so method.model is the raw module again
+    method.model = accelerator.unwrap_model(method.model)
     return epoch_losses
 
 
-def train_reflow(method, paired_dataset, epochs=5, lr=1e-3, batch_size=128, device='cuda', ema_decay=0.9999):
+def train_reflow(method, paired_dataset, epochs=5, lr=1e-3, batch_size=128, ema_decay=0.9999, accelerator=None):
     """Train a model on pre-generated coupled (x0, x1, labels) pairs for reflow."""
+    if accelerator is None:
+        accelerator = Accelerator()
+
     dataloader = DataLoader(paired_dataset, batch_size=batch_size, shuffle=True)
     optimizer = torch.optim.AdamW(method.model.parameters(), lr=lr)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
-    method.model.to(device)
+
+    method.model, optimizer, dataloader, scheduler = accelerator.prepare(
+        method.model, optimizer, dataloader, scheduler
+    )
+
     method.model.train()
     ema = EMA(method.model, decay=ema_decay)
 
@@ -72,23 +89,23 @@ def train_reflow(method, paired_dataset, epochs=5, lr=1e-3, batch_size=128, devi
 
     for epoch in range(epochs):
         total_loss = 0
-        pbar = tqdm(dataloader, desc=f"Epoch {epoch+1}/{epochs}")
+        num_batches = 0
+        pbar = tqdm(dataloader, desc=f"Epoch {epoch+1}/{epochs}", disable=not accelerator.is_main_process)
         for x0, x1, labels in pbar:
-            x0 = x0.to(device)
-            x1 = x1.to(device)
-            labels = labels.to(device)
             optimizer.zero_grad()
             loss = method.compute_loss(x1, labels, x0=x0)
-            loss.backward()
+            accelerator.backward(loss)
             torch.nn.utils.clip_grad_norm_(method.model.parameters(), max_norm=1.0)
             optimizer.step()
             ema.update(method.model)
 
             total_loss += loss.item()
+            num_batches += 1
             pbar.set_postfix({'loss': f"{loss.item():.4f}"})
 
         scheduler.step()
-        epoch_losses.append(total_loss / len(dataloader))
+        epoch_losses.append(total_loss / num_batches)
 
     ema.apply(method.model)
+    method.model = accelerator.unwrap_model(method.model)
     return epoch_losses

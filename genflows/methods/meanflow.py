@@ -55,11 +55,14 @@ class MeanFlow:
 
         # MeanFlow Identity Target: v_eff - (t - r) * (v_eff·∂_z u + ∂_t u)
         with torch.no_grad():
-            params = dict(self.model.named_parameters())
-            buffers = dict(self.model.named_buffers())
+            # Unwrap DDP model for torch.func compatibility (JVP is no_grad target-only,
+            # so no distributed sync is lost — the trainable forward pass above still uses DDP)
+            raw_model = self.model.module if hasattr(self.model, 'module') else self.model
+            params = dict(raw_model.named_parameters())
+            buffers = dict(raw_model.named_buffers())
 
             def stateless_u_fn(z_in, t_in, r_in):
-                return torch.func.functional_call(self.model, (params, buffers), (z_in, t_in, t_in - r_in, labels))
+                return torch.func.functional_call(raw_model, (params, buffers), (z_in, t_in, t_in - r_in, labels))
 
             _, jvp_out = torch.func.jvp(
                 stateless_u_fn,
