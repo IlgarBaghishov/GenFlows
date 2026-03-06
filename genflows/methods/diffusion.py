@@ -90,6 +90,8 @@ class Diffusion:
                 # Predict x0
                 x0_pred = (x - torch.sqrt(1 - alpha_bar_t) * eps_pred) / torch.sqrt(alpha_bar_t)
                 x0_pred = x0_pred.clamp(-1, 1)
+                # Recompute eps consistent with clipped x0 (prevents CFG drift)
+                eps_pred = (x - torch.sqrt(alpha_bar_t) * x0_pred) / torch.sqrt(1 - alpha_bar_t)
 
                 # DDIM variance: eta=0 deterministic, eta=1 matches DDPM
                 sigma = eta * torch.sqrt((1 - alpha_bar_prev) / (1 - alpha_bar_t) * (1 - alpha_bar_t / alpha_bar_prev))
