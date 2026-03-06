@@ -94,7 +94,11 @@ class UNet(nn.Module):
             in_c = out_c
             
         self.mid_block1 = nn.Conv2d(hidden_dims[-1], hidden_dims[-1], 3, padding=1)
+        self.mid_gn1 = nn.GroupNorm(8, hidden_dims[-1])
+        self.mid_time_mlp = nn.Linear(time_dim, hidden_dims[-1])
         self.mid_block2 = nn.Conv2d(hidden_dims[-1], hidden_dims[-1], 3, padding=1)
+        self.mid_gn2 = nn.GroupNorm(8, hidden_dims[-1])
+        self.mid_act = nn.SiLU()
         
         for skip_c, out_c in zip(reversed(channels[1:]), reversed(hidden_dims[:-1])):
             self.ups.append(UpBlock(in_c, skip_c, out_c, time_dim))
@@ -135,10 +139,9 @@ class UNet(nn.Module):
             x, res = down(x, t_emb)
             res_stack.append(res)
             
-        x = self.mid_block1(x)
-        x = nn.SiLU()(x)
-        x = self.mid_block2(x)
-        x = nn.SiLU()(x)
+        x = self.mid_gn1(self.mid_act(self.mid_block1(x)))
+        x = x + self.mid_act(self.mid_time_mlp(t_emb))[..., None, None]
+        x = self.mid_gn2(self.mid_act(self.mid_block2(x)))
         
         for up in self.ups:
             res = res_stack.pop()

@@ -60,7 +60,7 @@ examples/
 
 ### Diffusion (DDPM/DDIM)
 
-Learns to predict the noise added at each timestep. Supports two samplers: DDPM (stochastic, original formulation) and DDIM (deterministic when eta=0, allows fewer steps). Uses a linear beta schedule with 1000 steps.
+Learns to predict the noise added at each timestep. Supports two samplers: DDPM (stochastic, with proper posterior variance for arbitrary step counts) and DDIM (deterministic when eta=0, allows fewer steps). Uses a linear beta schedule with 1000 steps.
 
 ### Flow Matching
 
@@ -79,10 +79,10 @@ Learns the *mean* velocity over a time interval rather than the instantaneous ve
 
 ## Implementation details
 
-- **Architecture**: UNet with hidden dims [64, 128, 256], GroupNorm, SiLU activations, sinusoidal positional embeddings. MeanFlow uses `num_time_embs=2` (for t and t-r); all others use 1.
+- **Architecture**: UNet with hidden dims [64, 128, 256], GroupNorm, SiLU activations, sinusoidal positional embeddings, time-conditioned mid-blocks. MeanFlow uses `num_time_embs=2` (for t and t-r); all others use 1.
 - **Class conditioning**: Learned embedding for 10 digit classes + 1 null token. Labels randomly dropped with 10% probability during training for CFG.
 - **CFG sampling**: `output = uncond + cfg_scale * (cond - uncond)`, default `cfg_scale=3.0`
-- **Training**: AdamW optimizer, lr=1e-3, batch size 128
+- **Training**: AdamW optimizer, lr=1e-3 with cosine annealing, gradient clipping (max_norm=1.0), EMA (decay=0.9999)
 - **Data**: MNIST padded from 28x28 to 32x32 (2px each side) for clean UNet downsampling/upsampling
 
 ## References

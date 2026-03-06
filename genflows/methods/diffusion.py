@@ -56,16 +56,29 @@ class Diffusion:
                 eps_pred = self.model(x, t_norm, null_labels)
 
             if sampler == 'ddpm':
-                alpha_t = self.alphas.to(device)[i]
                 alpha_bar_t = self.alpha_bars.to(device)[i]
-                beta_t = self.betas.to(device)[i]
+                if idx < len(timesteps) - 1:
+                    alpha_bar_prev = self.alpha_bars.to(device)[timesteps[idx + 1]]
+                else:
+                    alpha_bar_prev = torch.tensor(1.0, device=device)
 
-                if i > 0:
+                # Predict x0
+                x0_pred = (x - torch.sqrt(1 - alpha_bar_t) * eps_pred) / torch.sqrt(alpha_bar_t)
+                x0_pred = x0_pred.clamp(-1, 1)
+
+                # Posterior mean and variance for arbitrary stride
+                posterior_mean = (
+                    torch.sqrt(alpha_bar_prev) * (1 - alpha_bar_t / alpha_bar_prev) / (1 - alpha_bar_t) * x0_pred
+                    + torch.sqrt(alpha_bar_t / alpha_bar_prev) * (1 - alpha_bar_prev) / (1 - alpha_bar_t) * x
+                )
+                posterior_var = (1 - alpha_bar_prev) / (1 - alpha_bar_t) * (1 - alpha_bar_t / alpha_bar_prev)
+
+                if idx < len(timesteps) - 1:
                     noise = torch.randn_like(x)
                 else:
                     noise = torch.zeros_like(x)
 
-                x = 1 / torch.sqrt(alpha_t) * (x - ((1 - alpha_t) / torch.sqrt(1 - alpha_bar_t)) * eps_pred) + torch.sqrt(beta_t) * noise
+                x = posterior_mean + torch.sqrt(posterior_var) * noise
 
             elif sampler == 'ddim':
                 alpha_bar_t = self.alpha_bars.to(device)[i]
