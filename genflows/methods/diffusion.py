@@ -4,6 +4,7 @@ import torch.nn.functional as F
 class Diffusion:
     def __init__(self, model, n_steps=1000, beta_min=1e-4, beta_max=0.02, drop_prob=0.1):
         self.model = model
+        self.num_classes = model.num_classes
         self.n_steps = n_steps
         self.drop_prob = drop_prob
         self.betas = torch.linspace(beta_min, beta_max, n_steps)
@@ -20,7 +21,7 @@ class Diffusion:
         # Randomly drop labels for classifier-free guidance training
         drop_mask = torch.rand(x0.shape[0], device=x0.device) < self.drop_prob
         labels = labels.clone()
-        labels[drop_mask] = self.model.num_classes  # null class token
+        labels[drop_mask] = self.num_classes  # null class token
 
         t_norm = t.float() / self.n_steps
         eps_pred = self.model(xt, t_norm, labels)
@@ -36,7 +37,7 @@ class Diffusion:
             eta: DDIM noise scale. 0=deterministic, 1=same variance as DDPM. Only used when sampler='ddim'.
         """
         if n_steps is None: n_steps = self.n_steps
-        null_labels = torch.full((shape[0],), self.model.num_classes, device=device, dtype=torch.long)
+        null_labels = torch.full((shape[0],), self.num_classes, device=device, dtype=torch.long)
 
         x = torch.randn(shape, device=device)
 

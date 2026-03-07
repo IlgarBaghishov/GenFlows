@@ -4,6 +4,7 @@ import torch.nn.functional as F
 class FlowMatching:
     def __init__(self, model, drop_prob=0.1):
         self.model = model
+        self.num_classes = model.num_classes
         self.drop_prob = drop_prob
 
     def compute_loss(self, x1, labels):
@@ -19,14 +20,14 @@ class FlowMatching:
         # Randomly drop labels for classifier-free guidance training
         drop_mask = torch.rand(x1.shape[0], device=x1.device) < self.drop_prob
         labels = labels.clone()
-        labels[drop_mask] = self.model.num_classes
+        labels[drop_mask] = self.num_classes
 
         v_pred = self.model(xt, t, labels)
         return F.mse_loss(v_pred, v_target)
 
     @torch.no_grad()
     def sample(self, shape, device, labels=None, cfg_scale=3.0, n_steps=50):
-        null_labels = torch.full((shape[0],), self.model.num_classes, device=device, dtype=torch.long)
+        null_labels = torch.full((shape[0],), self.num_classes, device=device, dtype=torch.long)
 
         # We start from noise (t=0) and integrate to t=1
         x = torch.randn(shape, device=device)

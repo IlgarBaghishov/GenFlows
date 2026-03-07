@@ -30,10 +30,11 @@ def main():
     accelerator.wait_for_everyone()
 
     # Per-method epoch counts tuned for MNIST
-    epochs_ddpm = 300
-    epochs_fm = 300
-    epochs_rf = 150
-    epochs_mf = 600
+    # TODO: restore to 300/300/150/600
+    epochs_ddpm = 2
+    epochs_fm = 2
+    epochs_rf = 2
+    epochs_mf = 2
 
     # --- 1. Diffusion (DDPM) ---
     accelerator.print("\n--- Training Diffusion (DDPM) ---")

@@ -26,7 +26,7 @@ class RectifiedFlow(FlowMatching):
         # Randomly drop labels for classifier-free guidance training
         drop_mask = torch.rand(x1.shape[0], device=x1.device) < self.drop_prob
         labels = labels.clone()
-        labels[drop_mask] = self.model.num_classes
+        labels[drop_mask] = self.num_classes
 
         v_pred = self.model(xt, t, labels)
         return F.mse_loss(v_pred, v_target)

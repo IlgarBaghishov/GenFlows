@@ -4,6 +4,7 @@ import torch.nn.functional as F
 class MeanFlow:
     def __init__(self, model, drop_prob=0.1, cfg_mode='standard', omega=3.0, kappa=0.0):
         self.model = model
+        self.num_classes = model.num_classes
         self.drop_prob = drop_prob
         self.cfg_mode = cfg_mode  # 'standard' or 'embedded'
         self.omega = omega        # guidance scale for embedded CFG (Eq. 21)
@@ -38,7 +39,7 @@ class MeanFlow:
         if self.cfg_mode == 'embedded':
             with torch.no_grad():
                 zero_dt = torch.zeros_like(t)
-                null_labels = torch.full((b,), self.model.num_classes, device=device, dtype=torch.long)
+                null_labels = torch.full((b,), self.num_classes, device=device, dtype=torch.long)
                 u_cond = self.model(xt, t, zero_dt, labels)
                 u_uncond = self.model(xt, t, zero_dt, null_labels)
             v_eff = self.omega * v_t + self.kappa * u_cond + (1 - self.omega - self.kappa) * u_uncond
@@ -48,7 +49,7 @@ class MeanFlow:
         # Randomly drop labels for classifier-free guidance training
         drop_mask = torch.rand(b, device=device) < self.drop_prob
         labels = labels.clone()
-        labels[drop_mask] = self.model.num_classes
+        labels[drop_mask] = self.num_classes
 
         # Predict average velocity: u_theta(xt, t, t - r)
         u_pred = self.model(xt, t, t - r, labels)
@@ -84,7 +85,7 @@ class MeanFlow:
 
     @torch.no_grad()
     def sample(self, shape, device, labels=None, cfg_scale=3.0, n_steps=1):
-        null_labels = torch.full((shape[0],), self.model.num_classes, device=device, dtype=torch.long)
+        null_labels = torch.full((shape[0],), self.num_classes, device=device, dtype=torch.long)
 
         # We start from noise (t=1) and go to data (t=0).
         x = torch.randn(shape, device=device)
