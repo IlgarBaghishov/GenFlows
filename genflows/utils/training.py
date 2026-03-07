@@ -1,7 +1,29 @@
+import math
+
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from accelerate import Accelerator
+
+
+def _make_scheduler(optimizer, epochs, world_size):
+    """Create LR scheduler with sqrt-scaled LR and linear warmup for multi-GPU."""
+    # Scale LR by sqrt(world_size) for AdamW
+    if world_size > 1:
+        scale = math.sqrt(world_size)
+        for pg in optimizer.param_groups:
+            pg['lr'] *= scale
+
+    warmup_epochs = max(1, epochs // 20)
+    warmup = torch.optim.lr_scheduler.LinearLR(
+        optimizer, start_factor=1.0 / warmup_epochs, total_iters=warmup_epochs
+    )
+    cosine = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=epochs - warmup_epochs
+    )
+    return torch.optim.lr_scheduler.SequentialLR(
+        optimizer, [warmup, cosine], milestones=[warmup_epochs]
+    )
 
 
 class EMA:
@@ -33,7 +55,7 @@ def train_model(method, dataloader, epochs=5, lr=1e-3, ema_decay=0.9999, acceler
         accelerator = Accelerator()
 
     optimizer = torch.optim.AdamW(method.model.parameters(), lr=lr)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+    scheduler = _make_scheduler(optimizer, epochs, accelerator.num_processes)
 
     method.model, optimizer, dataloader, scheduler = accelerator.prepare(
         method.model, optimizer, dataloader, scheduler
@@ -81,7 +103,7 @@ def train_reflow(method, paired_dataset, epochs=5, lr=1e-3, batch_size=128, ema_
 
     dataloader = DataLoader(paired_dataset, batch_size=batch_size, shuffle=True)
     optimizer = torch.optim.AdamW(method.model.parameters(), lr=lr)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+    scheduler = _make_scheduler(optimizer, epochs, accelerator.num_processes)
 
     method.model, optimizer, dataloader, scheduler = accelerator.prepare(
         method.model, optimizer, dataloader, scheduler

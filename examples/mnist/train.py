@@ -1,7 +1,7 @@
 import sys
 import os
 import torch
-from torch.utils.data import TensorDataset
+from torch.utils.data import DataLoader, TensorDataset
 from accelerate import Accelerator
 
 # Add package root to Python path
@@ -22,19 +22,20 @@ def main():
     device = accelerator.device
     accelerator.print(f"Using device: {device}")
 
-    train_loader, _ = get_mnist_loaders(batch_size=128)
-
+    # Download data on main process first to avoid race conditions
     if accelerator.is_main_process:
+        get_mnist_loaders(batch_size=128)
         os.makedirs("checkpoints", exist_ok=True)
         os.makedirs("results", exist_ok=True)
     accelerator.wait_for_everyone()
 
+    train_loader, _ = get_mnist_loaders(batch_size=128)
+
     # Per-method epoch counts tuned for MNIST
-    # TODO: restore to 300/300/150/600
-    epochs_ddpm = 2
-    epochs_fm = 2
-    epochs_rf = 2
-    epochs_mf = 2
+    epochs_ddpm = 350
+    epochs_fm = 350
+    epochs_rf = 200
+    epochs_mf = 800
 
     # --- 1. Diffusion (DDPM) ---
     accelerator.print("\n--- Training Diffusion (DDPM) ---")
@@ -54,13 +55,26 @@ def main():
         torch.save(method_fm.model.state_dict(), "checkpoints/flow_matching.pt")
         plot_loss(loss_fm, "Flow Matching Training Loss", "results/loss_flow_matching.png")
 
-    # --- 3. Generate Reflow Pairs ---
-    accelerator.print("\n--- Generating Forward Reflow Pairs from Flow Matching model ---")
+    # --- 3. Generate Reflow Pairs (distributed across all GPUs) ---
     reflow_generator = RectifiedFlow(method_fm.model)
     reflow_generator.model.to(device)
-    paired_fwd = reflow_generator.generate_reflow_pairs(train_loader, device, n_steps=100)
+    pair_loader = accelerator.prepare(
+        DataLoader(train_loader.dataset, batch_size=128, shuffle=False)
+    )
+    silent = not accelerator.is_main_process
+
+    accelerator.print("\n--- Generating Forward Reflow Pairs from Flow Matching model ---")
+    local_fwd = reflow_generator.generate_reflow_pairs(pair_loader, device, n_steps=100, silent=silent)
+    accelerator.wait_for_everyone()
     accelerator.print("\n--- Generating Backward Reflow Pairs from Flow Matching model ---")
-    paired_bwd = reflow_generator.generate_reflow_pairs_backward(train_loader, device, n_steps=100)
+    local_bwd = reflow_generator.generate_reflow_pairs_backward(pair_loader, device, n_steps=100, silent=silent)
+
+    # Gather pairs from all ranks
+    def gather_pairs(local_dataset):
+        return TensorDataset(*[accelerator.gather(t.to(device)).cpu() for t in local_dataset.tensors])
+
+    paired_fwd = gather_pairs(local_fwd)
+    paired_bwd = gather_pairs(local_bwd)
     paired_bidir = TensorDataset(
         torch.cat([paired_fwd.tensors[0], paired_bwd.tensors[0]]),
         torch.cat([paired_fwd.tensors[1], paired_bwd.tensors[1]]),
@@ -128,6 +142,9 @@ def main():
         plot_loss(loss_mf_cfg, "MeanFlow (Embed CFG) Training Loss", "results/loss_meanflow_embedded_cfg.png")
 
     accelerator.print("\nDone! Checkpoints saved to 'checkpoints/', loss curves to 'results/'.")
+    accelerator.wait_for_everyone()
+    if torch.distributed.is_initialized():
+        torch.distributed.destroy_process_group()
 
 
 if __name__ == "__main__":

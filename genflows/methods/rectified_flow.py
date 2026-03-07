@@ -1,6 +1,7 @@
 import torch
 import torch.nn.functional as F
 from torch.utils.data import TensorDataset
+from tqdm import tqdm
 
 from .flow_matching import FlowMatching
 
@@ -32,7 +33,7 @@ class RectifiedFlow(FlowMatching):
         return F.mse_loss(v_pred, v_target)
 
     @torch.no_grad()
-    def generate_reflow_pairs(self, dataloader, device, n_steps=100):
+    def generate_reflow_pairs(self, dataloader, device, n_steps=100, silent=False):
         """Generate coupled (noise, generated_data, label) pairs via forward ODE.
 
         For each training sample x1, sample noise x0, then integrate the ODE
@@ -46,7 +47,7 @@ class RectifiedFlow(FlowMatching):
         all_x1 = []
         all_labels = []
 
-        for x1, labels in dataloader:
+        for x1, labels in tqdm(dataloader, desc="Forward reflow pairs", disable=silent):
             x1 = x1.to(device)
             labels = labels.to(device)
             batch_size = x1.shape[0]
@@ -74,7 +75,7 @@ class RectifiedFlow(FlowMatching):
         )
 
     @torch.no_grad()
-    def generate_reflow_pairs_backward(self, dataloader, device, n_steps=100):
+    def generate_reflow_pairs_backward(self, dataloader, device, n_steps=100, silent=False):
         """Generate coupled (generated_noise, data, label) pairs via backward ODE.
 
         For each training sample x1, integrate the ODE backward from x1 (t=1)
@@ -88,7 +89,7 @@ class RectifiedFlow(FlowMatching):
         all_x1 = []
         all_labels = []
 
-        for x1, labels in dataloader:
+        for x1, labels in tqdm(dataloader, desc="Backward reflow pairs", disable=silent):
             x1 = x1.to(device)
             labels = labels.to(device)
             batch_size = x1.shape[0]
