@@ -1,10 +1,6 @@
-import sys
 import os
 import time
 import torch
-
-# Add package root to Python path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from genflows.models.unet import UNet
 from genflows.methods.diffusion import Diffusion
@@ -48,7 +44,7 @@ def load_method(name, ckpt_path, device):
 def timed_sample(method, shape, device, labels, n_steps, **kwargs):
     """Sample and return (samples, elapsed_seconds)."""
     t0 = time.time()
-    samples = method.sample(shape, device, labels=labels, n_steps=n_steps, **kwargs)
+    samples = method.sample(shape, device, cond=labels, n_steps=n_steps, **kwargs)
     elapsed = time.time() - t0
     return samples, elapsed
 

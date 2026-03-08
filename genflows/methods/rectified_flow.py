@@ -14,27 +14,23 @@ class RectifiedFlow(FlowMatching):
     ODE integration of the previous round's model, producing straighter paths.
     """
 
-    def compute_loss(self, x1, labels, x0=None):
+    def compute_loss(self, x1, cond, x0=None):
         if x0 is None:
             x0 = torch.randn_like(x1)
 
         t = torch.rand((x1.shape[0],), device=x1.device)
-        t_expand = t[:, None, None, None]
+        t_expand = t.view(-1, *([1] * (x1.ndim - 1)))
         xt = (1 - t_expand) * x0 + t_expand * x1
 
         v_target = x1 - x0
 
-        # Randomly drop labels for classifier-free guidance training
         drop_mask = torch.rand(x1.shape[0], device=x1.device) < self.drop_prob
-        labels = labels.clone()
-        labels[drop_mask] = self.num_classes
-
-        v_pred = self.model(xt, t, labels)
+        v_pred = self.model(xt, t, cond, drop_mask=drop_mask)
         return F.mse_loss(v_pred, v_target)
 
     @torch.no_grad()
     def generate_reflow_pairs(self, dataloader, device, n_steps=100, silent=False):
-        """Generate coupled (noise, generated_data, label) pairs via forward ODE.
+        """Generate coupled (noise, generated_data, cond) pairs via forward ODE.
 
         For each training sample x1, sample noise x0, then integrate the ODE
         from x0 (t=0) to t=1 to produce x1_generated. The pair (x0, x1_generated)
@@ -45,11 +41,11 @@ class RectifiedFlow(FlowMatching):
 
         all_x0 = []
         all_x1 = []
-        all_labels = []
+        all_cond = []
 
-        for x1, labels in tqdm(dataloader, desc="Forward reflow pairs", disable=silent):
+        for x1, cond in tqdm(dataloader, desc="Forward reflow pairs", disable=silent):
             x1 = x1.to(device)
-            labels = labels.to(device)
+            cond = cond.to(device)
             batch_size = x1.shape[0]
 
             x0 = torch.randn_like(x1)
@@ -59,24 +55,24 @@ class RectifiedFlow(FlowMatching):
             dt = 1.0 / n_steps
             for i in range(n_steps):
                 t = torch.full((batch_size,), i * dt, device=device)
-                v_pred = self.model(x, t, labels)
+                v_pred = self.model(x, t, cond)
                 x = x + v_pred * dt
 
             all_x0.append(x0.cpu())
             all_x1.append(x.cpu())
-            all_labels.append(labels.cpu())
+            all_cond.append(cond.cpu())
 
         self.model.train()
 
         return TensorDataset(
             torch.cat(all_x0),
             torch.cat(all_x1),
-            torch.cat(all_labels),
+            torch.cat(all_cond),
         )
 
     @torch.no_grad()
     def generate_reflow_pairs_backward(self, dataloader, device, n_steps=100, silent=False):
-        """Generate coupled (generated_noise, data, label) pairs via backward ODE.
+        """Generate coupled (generated_noise, data, cond) pairs via backward ODE.
 
         For each training sample x1, integrate the ODE backward from x1 (t=1)
         to t=0 to produce x0_generated. The pair (x0_generated, x1) forms a
@@ -87,11 +83,11 @@ class RectifiedFlow(FlowMatching):
 
         all_x0 = []
         all_x1 = []
-        all_labels = []
+        all_cond = []
 
-        for x1, labels in tqdm(dataloader, desc="Backward reflow pairs", disable=silent):
+        for x1, cond in tqdm(dataloader, desc="Backward reflow pairs", disable=silent):
             x1 = x1.to(device)
-            labels = labels.to(device)
+            cond = cond.to(device)
             batch_size = x1.shape[0]
 
             # Integrate ODE from t=1 to t=0 (backward)
@@ -99,17 +95,17 @@ class RectifiedFlow(FlowMatching):
             dt = 1.0 / n_steps
             for i in range(n_steps):
                 t = torch.full((batch_size,), 1.0 - i * dt, device=device)
-                v_pred = self.model(x, t, labels)
+                v_pred = self.model(x, t, cond)
                 x = x - v_pred * dt
 
             all_x0.append(x.cpu())
             all_x1.append(x1.cpu())
-            all_labels.append(labels.cpu())
+            all_cond.append(cond.cpu())
 
         self.model.train()
 
         return TensorDataset(
             torch.cat(all_x0),
             torch.cat(all_x1),
-            torch.cat(all_labels),
+            torch.cat(all_cond),
         )

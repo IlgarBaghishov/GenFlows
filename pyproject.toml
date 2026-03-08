@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "genflows"
+version = "0.1.0"
+description = "Unified generative modeling methods: Diffusion, Flow Matching, Rectified Flow, MeanFlow"
+requires-python = ">=3.9"
+dependencies = [
+    "torch",
+    "torchvision",
+    "matplotlib",
+    "tqdm",
+    "accelerate",
+    "pandas",
+]
+
+[tool.setuptools.packages.find]
+include = ["genflows*"]

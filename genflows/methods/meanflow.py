@@ -4,13 +4,12 @@ import torch.nn.functional as F
 class MeanFlow:
     def __init__(self, model, drop_prob=0.1, cfg_mode='standard', omega=3.0, kappa=0.0):
         self.model = model
-        self.num_classes = model.num_classes
         self.drop_prob = drop_prob
         self.cfg_mode = cfg_mode  # 'standard' or 'embedded'
         self.omega = omega        # guidance scale for embedded CFG (Eq. 21)
         self.kappa = kappa        # mixing scale for improved embedded CFG (Eq. 20)
 
-    def compute_loss(self, x_data, labels, target_params=None):
+    def compute_loss(self, x_data, cond, target_params=None):
         device = x_data.device
         b = x_data.shape[0]
 
@@ -29,7 +28,7 @@ class MeanFlow:
         r = torch.where(mask, t, r)
 
         # Conditional path: t=1 is noise, t=0 is data
-        t_expand = t[:, None, None, None]
+        t_expand = t.view(-1, *([1] * (x_data.ndim - 1)))
         xt = t_expand * x_noise + (1 - t_expand) * x_data
         v_t = x_noise - x_data  # Instantaneous velocity dz_t/dt
 
@@ -39,20 +38,17 @@ class MeanFlow:
         if self.cfg_mode == 'embedded':
             with torch.no_grad():
                 zero_dt = torch.zeros_like(t)
-                null_labels = torch.full((b,), self.num_classes, device=device, dtype=torch.long)
-                u_cond = self.model(xt, t, zero_dt, labels)
-                u_uncond = self.model(xt, t, zero_dt, null_labels)
+                u_cond = self.model(xt, t, zero_dt, cond)
+                u_uncond = self.model(xt, t, zero_dt)
             v_eff = self.omega * v_t + self.kappa * u_cond + (1 - self.omega - self.kappa) * u_uncond
         else:
             v_eff = v_t
 
-        # Randomly drop labels for classifier-free guidance training
+        # CFG dropping: method decides which samples to drop, model applies it
         drop_mask = torch.rand(b, device=device) < self.drop_prob
-        labels = labels.clone()
-        labels[drop_mask] = self.num_classes
 
         # Predict average velocity: u_theta(xt, t, t - r)
-        u_pred = self.model(xt, t, t - r, labels)
+        u_pred = self.model(xt, t, t - r, cond, drop_mask=drop_mask)
 
         # MeanFlow Identity Target: v_eff - (t - r) * (v_eff·∂_z u + ∂_t u)
         with torch.no_grad():
@@ -70,7 +66,11 @@ class MeanFlow:
             buffers = dict(raw_model.named_buffers())
 
             def stateless_u_fn(z_in, t_in, r_in):
-                return torch.func.functional_call(raw_model, (params, buffers), (z_in, t_in, t_in - r_in, labels))
+                return torch.func.functional_call(
+                    raw_model, (params, buffers),
+                    (z_in, t_in, t_in - r_in, cond),
+                    {'drop_mask': drop_mask}
+                )
 
             _, jvp_out = torch.func.jvp(
                 stateless_u_fn,
@@ -78,15 +78,13 @@ class MeanFlow:
                 (v_eff, torch.ones_like(t), torch.zeros_like(r))
             )
 
-            dt = (t - r)[:, None, None, None]
+            dt = (t - r).view(-1, *([1] * (x_data.ndim - 1)))
             u_tgt = v_eff - dt * jvp_out
 
         return F.mse_loss(u_pred, u_tgt.detach())
 
     @torch.no_grad()
-    def sample(self, shape, device, labels=None, cfg_scale=3.0, n_steps=1):
-        null_labels = torch.full((shape[0],), self.num_classes, device=device, dtype=torch.long)
-
+    def sample(self, shape, device, cond=None, cfg_scale=3.0, n_steps=1):
         # We start from noise (t=1) and go to data (t=0).
         x = torch.randn(shape, device=device)
 
@@ -99,16 +97,19 @@ class MeanFlow:
 
             if self.cfg_mode == 'embedded':
                 # CFG is baked into the model — 1 NFE per step
-                u_pred = self.model(x, t, t - r, labels if labels is not None else null_labels)
-            elif labels is not None and cfg_scale > 0:
+                if cond is not None:
+                    u_pred = self.model(x, t, t - r, cond)
+                else:
+                    u_pred = self.model(x, t, t - r)
+            elif cond is not None and cfg_scale > 0:
                 # Standard CFG at sampling time — 2 NFE per step
-                u_cond = self.model(x, t, t - r, labels)
-                u_uncond = self.model(x, t, t - r, null_labels)
+                u_cond = self.model(x, t, t - r, cond)
+                u_uncond = self.model(x, t, t - r)
                 u_pred = u_uncond + cfg_scale * (u_cond - u_uncond)
             else:
-                u_pred = self.model(x, t, t - r, null_labels)
+                u_pred = self.model(x, t, t - r)
 
-            dt = (t - r)[:, None, None, None]
+            dt = (t - r).view(-1, *([1] * (x.ndim - 1)))
             x = x - dt * u_pred
 
         return x

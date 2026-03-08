@@ -2,78 +2,116 @@
 
 ## Project Overview
 
-Simple implementations of generative modeling methods for MNIST digit generation:
+Generative modeling methods with a shared, modular architecture. Methods are pure math (model-agnostic); models handle all conditioning details. Currently supports two datasets:
+
+- **MNIST** — 2D digit generation (32x32), class-conditional (10 digits)
+- **Lobes** — 3D geological lobe generation (50x50x50 binary voxels), continuous-conditional (height, radius, aspect_ratio, angle, net-to-gross)
+
+Methods:
 - **Diffusion** (DDPM + DDIM sampling, with x0-clipping for stable CFG)
 - **Flow Matching** (Optimal Transport)
-- **MeanFlow** (novel method using mean velocity — paper included in `meanflow_paper_latex/`)
+- **MeanFlow** (mean velocity with JVP-based training — paper included in `meanflow_paper_latex/`)
 - **Rectified Flow** (Liu et al., "Flow Straight and Fast" — forward, backward, bidirectional reflow variants)
 
 ## Project Structure
 
 ```
-genflows/           # Main package (~700 lines total)
-├── models/unet.py     # UNet with sinusoidal time embeddings (supports multiple time inputs for MeanFlow)
+genflows/
+├── models/
+│   ├── unet.py            # 2D UNet for images (class-conditional via learned embedding)
+│   └── unet3d.py          # 3D UNet for volumes (continuous-conditional via MLP + learned null embedding)
 ├── methods/
-│   ├── diffusion.py   # Diffusion: noise prediction, DDPM/DDIM sampling, 1000-step schedule
-│   ├── flow_matching.py  # Flow Matching: velocity field prediction, Euler integration
-│   ├── meanflow.py    # MeanFlow: mean velocity with JVP-based training
-│   └── rectified_flow.py # Rectified Flow: forward/backward/bidirectional reflow with coupled pairs
+│   ├── diffusion.py       # Diffusion: noise prediction, DDPM/DDIM sampling, 1000-step schedule
+│   ├── flow_matching.py   # Flow Matching: velocity field prediction, Euler integration
+│   ├── meanflow.py        # MeanFlow: mean velocity with JVP-based training
+│   └── rectified_flow.py  # Rectified Flow: forward/backward/bidirectional reflow with coupled pairs
 └── utils/
-    ├── data.py        # MNIST loading (padded to 32x32, normalized to [-1,1])
-    ├── training.py    # Training loop (AdamW, cosine LR, grad clipping, EMA with target network) + train_reflow
-    └── plotting.py    # Sample grids and loss curves
+    ├── data.py            # MNIST loading (padded to 32x32, normalized to [-1,1])
+    ├── data_lobes.py      # Lobe dataset: facies loading, NTG computation, filtering, normalization
+    ├── training.py        # Training loop (AdamW, cosine LR, grad clipping, EMA with target network) + train_reflow
+    └── plotting.py        # Sample grids and loss curves
 
 examples/
-├── train.py           # Trains all 8 models, saves checkpoints to checkpoints/ and loss curves to results/
-├── sample.py          # Loads checkpoints, generates samples with wall-clock timing, saves to results/
-└── compare_models.py  # Legacy all-in-one script (trains + samples in one run)
+├── mnist/
+│   ├── train.py           # Train all 8 MNIST models
+│   └── sample.py          # Generate MNIST samples from checkpoints
+└── lobes/
+    ├── train.py           # Train all 8 lobe models
+    ├── sample.py          # Generate 3D lobe samples from checkpoints
+    └── data/              # facies.npy, parameters.csv, failed_cases.npy
 
-meanflow_paper_latex/  # LaTeX source for the MeanFlow paper
-meanflow.pdf           # Compiled paper
+meanflow_paper_latex/      # LaTeX source for the MeanFlow paper
+meanflow.pdf               # Compiled paper
 ```
 
-## Dependencies
+## Installation
 
-PyTorch, torchvision, matplotlib, tqdm, accelerate. No requirements.txt — install manually:
 ```bash
-pip install torch torchvision matplotlib tqdm accelerate
+pip install -e .
 ```
+
+This installs the `genflows` package and all dependencies (torch, torchvision, matplotlib, tqdm, accelerate, pandas) via `pyproject.toml`.
 
 ## Running
 
-**Separate training and sampling (recommended):**
+### MNIST (2D)
 ```bash
-python examples/train.py     # Train all 8 models, save checkpoints to checkpoints/
-python examples/sample.py    # Load checkpoints, generate samples with timing to results/
+python examples/mnist/train.py      # Train all 8 models
+python examples/mnist/sample.py     # Generate samples from checkpoints
+accelerate launch examples/mnist/train.py  # Multi-GPU
 ```
 
-**All-in-one (legacy):**
+### Lobes (3D)
 ```bash
-python examples/compare_models.py
+python examples/lobes/train.py      # Train all 8 models
+python examples/lobes/sample.py     # Generate 3D samples from checkpoints
+accelerate launch examples/lobes/train.py  # Multi-GPU
 ```
 
-Training saves 8 checkpoints to `checkpoints/`: `diffusion.pt`, `flow_matching.pt`, `rectified_flow.pt`, `rectified_flow_rand.pt`, `rectified_flow_bwd.pt`, `rectified_flow_bidir.pt`, `meanflow_std.pt`, `meanflow_embed.pt`. Sampling can be re-run without retraining. Samples are generated at step counts [1, 5, 10, 50, 100, 500, 1000]. For the Diffusion method, both DDPM and DDIM samplers are run. Results saved to `results/`. Multi-GPU training is supported via HuggingFace Accelerate (`accelerate launch examples/train.py`).
+## Architecture: Model ↔ Method Interface
+
+Methods and models are decoupled through a minimal interface:
+
+```python
+model(x, t, cond)                # conditional forward pass
+model(x, t)                      # unconditional forward pass (model uses its own null representation)
+model(x, t, cond, drop_mask=m)   # mixed batch: null conditioning for masked samples (training CFG)
+```
+
+- **Methods** decide CFG *strategy* — when to drop (drop_mask), how to combine cond/uncond at sampling time
+- **Models** decide CFG *representation* — what "unconditional" means internally (null class token, learned null embedding, etc.)
+- Any method works with any model. No model-specific logic in methods.
+
+### UNet (2D, MNIST)
+- Hidden dims [64, 128, 256], 2 down/up stages (32→16→8)
+- Class conditioning: `nn.Embedding(num_classes + 1, time_dim)`, null token = `num_classes`
+- Strided conv downsampling, ConvTranspose upsampling
+
+### UNet3D (Lobes)
+- Hidden dims [64, 64, 128, 128], 3 down/up stages (50→25→12→6)
+- MaxPool3d downsampling, `F.interpolate` (trilinear) upsampling — handles odd spatial dims
+- Continuous conditioning: 5 inputs [height, radius, aspect_ratio, angle_deg, ntg] normalized to [0,1] by dataset
+- Angle internally converted to sin(2π·angle_norm) and cos(2π·angle_norm) for 180° periodicity
+- Learned null embedding vector (`nn.Parameter`) for CFG unconditional
 
 ## Key Implementation Details
 
-- All models use the same UNet architecture (hidden dims [64, 128, 256])
 - MeanFlow's UNet takes `num_time_embs=2` (for t and t-r); others use 1
 - MeanFlow training uses `torch.func.jvp` and `torch.func.functional_call` for Jacobian-vector products; JVP target uses EMA shadow weights as a target network for training stability
-- Images are 32x32 (28x28 MNIST padded by 2px each side) for clean UNet downsampling/upsampling
-- Batch size: 128, Optimizer: AdamW with lr=1e-3, cosine annealing LR schedule, gradient clipping (max_norm=1.0), EMA (decay=0.9999)
+- MNIST: images 32x32 (28x28 padded by 2px each side), batch size 128
+- Lobes: volumes 50x50x50 (binary int8 facies), batch size 32, facies mapped {0,1}→{-1,1}
+- Lobe NTG computed from actual voxel data (fraction of 1s), NOT from parameters.csv. Samples with NTG < 0.05 or > 0.95 filtered out (~89k samples remain)
+- Optimizer: AdamW with lr=1e-3, cosine annealing LR schedule, gradient clipping (max_norm=1.0), EMA (decay=0.9999)
 - `Diffusion` class supports both DDPM (stochastic) and DDIM (deterministic when `eta=0`) sampling via the `sampler` argument; both use proper posterior variance for arbitrary step counts (strided timesteps). DDIM clips x0 predictions to [-1,1] and recomputes eps for consistency (prevents CFG drift)
 - Diffusion uses linear beta schedule (1e-4 to 0.02, 1000 steps)
-- UNet mid-blocks have time conditioning (GroupNorm + time embedding injection), matching the Down/UpBlock pattern
 - Rectified Flow inherits from FlowMatching; 2-Rectified Flow uses coupled pairs generated by ODE integration of the trained FM model. Three pair generation modes:
   - **Forward** (`generate_reflow_pairs`): exact noise → approximate data
   - **Backward** (`generate_reflow_pairs_backward`): approximate noise ← exact data
   - **Bidirectional**: concatenation of forward + backward pairs
-  - Models can be trained from random init (300 epochs) or warm-started from FM weights (150 epochs)
-- **Classifier-Free Guidance (CFG)**: All methods support class-conditional generation
-  - UNet has a learned class embedding (10 digits + 1 null token)
-  - During training, labels are randomly dropped with 10% probability (replaced with null token)
-  - During sampling, CFG combines conditional and unconditional predictions: `eps = eps_uncond + cfg_scale * (eps_cond - eps_uncond)`
-  - Default `cfg_scale=3.0`; comparison script generates 10x10 grids (rows = digits 0-9)
+- **Classifier-Free Guidance (CFG)**:
+  - Methods create `drop_mask` (10% probability) and pass to model via `drop_mask=` kwarg
+  - Models apply the mask using their own null representation
+  - During sampling: `output = uncond + cfg_scale * (cond - uncond)`, default `cfg_scale=3.0`
   - **MeanFlow supports two CFG modes** (`cfg_mode` argument):
     - `'standard'`: CFG applied at sampling time (2 NFE/step, same as other methods)
     - `'embedded'`: CFG baked into training target per paper Sec 4.2 / Eq. 17-21; replaces `v_t` with `ṽ_t = ω·v_t + κ·u_cond + (1-ω-κ)·u_uncond` in both JVP tangent and target, enabling 1-NFE sampling

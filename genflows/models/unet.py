@@ -110,16 +110,21 @@ class UNet(nn.Module):
             nn.Conv2d(hidden_dims[0], in_channels, 1)
         )
 
-    def forward(self, x, *args):
+    def forward(self, x, *args, drop_mask=None):
         # Last argument is class_label if it's a long/int tensor, otherwise all are times
         # Convention: forward(x, t1, ..., class_label)
         # class_label: LongTensor of shape (B,), values 0-9 for digits, num_classes for unconditional
+        # drop_mask: optional BoolTensor (B,), True = replace with null token for CFG
         if len(args) > 0 and args[-1].dtype == torch.long:
             times = args[:-1]
             class_label = args[-1]
         else:
             times = args
             class_label = torch.full((x.shape[0],), self.num_classes, device=x.device, dtype=torch.long)
+
+        if drop_mask is not None:
+            class_label = class_label.clone()
+            class_label[drop_mask] = self.num_classes
 
         t_embs = [self.time_mlp(t) for t in times]
         if len(t_embs) < self.num_time_embs:
