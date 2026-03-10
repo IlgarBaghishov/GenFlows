@@ -25,7 +25,7 @@ class RectifiedFlow(FlowMatching):
         v_target = x1 - x0
 
         drop_mask = torch.rand(x1.shape[0], device=x1.device) < self.drop_prob
-        v_pred = self.model(xt, t, cond, drop_mask=drop_mask)
+        v_pred = self.model(xt, t * 1000, cond, drop_mask=drop_mask)
         return F.mse_loss(v_pred, v_target)
 
     @torch.no_grad()
@@ -55,7 +55,7 @@ class RectifiedFlow(FlowMatching):
             dt = 1.0 / n_steps
             for i in range(n_steps):
                 t = torch.full((batch_size,), i * dt, device=device)
-                v_pred = self.model(x, t, cond)
+                v_pred = self.model(x, t * 1000, cond)
                 x = x + v_pred * dt
 
             all_x0.append(x0.cpu())
@@ -95,7 +95,7 @@ class RectifiedFlow(FlowMatching):
             dt = 1.0 / n_steps
             for i in range(n_steps):
                 t = torch.full((batch_size,), 1.0 - i * dt, device=device)
-                v_pred = self.model(x, t, cond)
+                v_pred = self.model(x, t * 1000, cond)
                 x = x - v_pred * dt
 
             all_x0.append(x.cpu())
