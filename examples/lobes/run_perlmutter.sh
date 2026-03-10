@@ -4,10 +4,10 @@
 #SBATCH --constraint=gpu
 #SBATCH --gpus-per-node=4
 #SBATCH --output=slurm_minimal_%j.log
-#SBATCH -q debug
-#SBATCH --nodes=2
+#SBATCH -q regular
+#SBATCH --nodes=4
 #SBATCH --ntasks-per-node=1
-#SBATCH -t 02:00:00
+#SBATCH -t 08:00:00
 
 pwd; hostname -f; date
 MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n1)

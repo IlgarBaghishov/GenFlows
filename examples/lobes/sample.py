@@ -20,7 +20,7 @@ def normalize_cond(raw_cond, cond_min, cond_max):
     """Normalize raw conditioning values to [0, 1].
 
     Args:
-        raw_cond: array of shape (N, 5) — [height, radius, aspect_ratio, angle_deg, ntg]
+        raw_cond: array of shape (N, 5) — [height, radius, aspect_ratio, azimuth_deg, ntg]
         cond_min, cond_max: arrays of shape (5,) from training dataset
     """
     return (raw_cond - cond_min) / (cond_max - cond_min + 1e-8)
@@ -77,7 +77,7 @@ def main():
 
     # Load normalization stats
     cond_min, cond_max = load_cond_stats()
-    param_names = ['height', 'radius', 'aspect_ratio', 'angle', 'ntg']
+    param_names = ['height', 'radius', 'aspect_ratio', 'azimuth', 'ntg']
     print("Conditioning ranges (from training):")
     for i, name in enumerate(param_names):
         print(f"  {name}: [{cond_min[i]:.2f}, {cond_max[i]:.2f}]")
@@ -85,14 +85,14 @@ def main():
     # Load all available methods
     methods = {}
     checkpoints = {
-        'diffusion': 'checkpoints/diffusion.pt',
+        # 'diffusion': 'checkpoints/diffusion.pt',
         'flow_matching': 'checkpoints/flow_matching.pt',
-        'rectified_flow': 'checkpoints/rectified_flow.pt',
-        'rectified_flow_bwd': 'checkpoints/rectified_flow_bwd.pt',
-        'rectified_flow_bidir': 'checkpoints/rectified_flow_bidir.pt',
-        'rectified_flow_rand': 'checkpoints/rectified_flow_rand.pt',
-        'meanflow_std': 'checkpoints/meanflow_std.pt',
-        'meanflow_embed': 'checkpoints/meanflow_embed.pt',
+        # 'rectified_flow': 'checkpoints/rectified_flow.pt',
+        # 'rectified_flow_bwd': 'checkpoints/rectified_flow_bwd.pt',
+        # 'rectified_flow_bidir': 'checkpoints/rectified_flow_bidir.pt',
+        # 'rectified_flow_rand': 'checkpoints/rectified_flow_rand.pt',
+        # 'meanflow_std': 'checkpoints/meanflow_std.pt',
+        # 'meanflow_embed': 'checkpoints/meanflow_embed.pt',
     }
 
     for name, path in checkpoints.items():
@@ -113,7 +113,7 @@ def main():
     cond_tensor = torch.from_numpy(cond_norm).to(device)
 
     shape = (n_samples, 1, 50, 50, 50)
-    step_counts = [1, 5, 10, 50, 100]
+    step_counts = [1, 5, 10, 50, 100, 500, 1000]
 
     print(f"\nGenerating {n_samples} samples per method per step count...")
     print(f"Conditioning values (raw):")
