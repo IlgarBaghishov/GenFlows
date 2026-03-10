@@ -38,8 +38,8 @@ class MeanFlow:
         if self.cfg_mode == 'embedded':
             with torch.no_grad():
                 zero_dt = torch.zeros_like(t)
-                u_cond = self.model(xt, t, zero_dt, cond)
-                u_uncond = self.model(xt, t, zero_dt)
+                u_cond = self.model(xt, t * 1000, zero_dt, cond)
+                u_uncond = self.model(xt, t * 1000, zero_dt)
             v_eff = self.omega * v_t + self.kappa * u_cond + (1 - self.omega - self.kappa) * u_uncond
         else:
             v_eff = v_t
@@ -48,7 +48,7 @@ class MeanFlow:
         drop_mask = torch.rand(b, device=device) < self.drop_prob
 
         # Predict average velocity: u_theta(xt, t, t - r)
-        u_pred = self.model(xt, t, t - r, cond, drop_mask=drop_mask)
+        u_pred = self.model(xt, t * 1000, (t - r) * 1000, cond, drop_mask=drop_mask)
 
         # MeanFlow Identity Target: v_eff - (t - r) * (v_eff·∂_z u + ∂_t u)
         with torch.no_grad():
@@ -68,7 +68,7 @@ class MeanFlow:
             def stateless_u_fn(z_in, t_in, r_in):
                 return torch.func.functional_call(
                     raw_model, (params, buffers),
-                    (z_in, t_in, t_in - r_in, cond),
+                    (z_in, t_in * 1000, (t_in - r_in) * 1000, cond),
                     {'drop_mask': drop_mask}
                 )
 
@@ -94,20 +94,22 @@ class MeanFlow:
         for i in range(n_steps):
             t = torch.full((shape[0],), t_vals[i].item(), device=device)
             r = torch.full((shape[0],), t_vals[i+1].item(), device=device)
+            t_emb = t * 1000  # scale for sinusoidal embedding
+            dt_emb = (t - r) * 1000
 
             if self.cfg_mode == 'embedded':
                 # CFG is baked into the model — 1 NFE per step
                 if cond is not None:
-                    u_pred = self.model(x, t, t - r, cond)
+                    u_pred = self.model(x, t_emb, dt_emb, cond)
                 else:
-                    u_pred = self.model(x, t, t - r)
+                    u_pred = self.model(x, t_emb, dt_emb)
             elif cond is not None and cfg_scale > 0:
                 # Standard CFG at sampling time — 2 NFE per step
-                u_cond = self.model(x, t, t - r, cond)
-                u_uncond = self.model(x, t, t - r)
+                u_cond = self.model(x, t_emb, dt_emb, cond)
+                u_uncond = self.model(x, t_emb, dt_emb)
                 u_pred = u_uncond + cfg_scale * (u_cond - u_uncond)
             else:
-                u_pred = self.model(x, t, t - r)
+                u_pred = self.model(x, t_emb, dt_emb)
 
             dt = (t - r).view(-1, *([1] * (x.ndim - 1)))
             x = x - dt * u_pred

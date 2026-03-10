@@ -16,7 +16,7 @@ class FlowMatching:
         v_target = x1 - x0
 
         drop_mask = torch.rand(x1.shape[0], device=x1.device) < self.drop_prob
-        v_pred = self.model(xt, t, cond, drop_mask=drop_mask)
+        v_pred = self.model(xt, t * 1000, cond, drop_mask=drop_mask)
         return F.mse_loss(v_pred, v_target)
 
     @torch.no_grad()
@@ -25,13 +25,14 @@ class FlowMatching:
         dt = 1.0 / n_steps
         for i in range(n_steps):
             t = torch.full((shape[0],), i * dt, device=device)
+            t_emb = t * 1000  # scale for sinusoidal embedding
 
             if cond is not None and cfg_scale > 0:
-                v_cond = self.model(x, t, cond)
-                v_uncond = self.model(x, t)
+                v_cond = self.model(x, t_emb, cond)
+                v_uncond = self.model(x, t_emb)
                 v_pred = v_uncond + cfg_scale * (v_cond - v_uncond)
             else:
-                v_pred = self.model(x, t)
+                v_pred = self.model(x, t_emb)
 
             x = x + v_pred * dt
         return x
