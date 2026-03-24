@@ -98,6 +98,23 @@ class LobeDataset(Dataset):
         return cond_norm * (cond_max - cond_min) + cond_min
 
 
+class LobeInpaintDataset(Dataset):
+    """Wraps a lobe dataset (or Subset) to add on-the-fly mask generation."""
+
+    def __init__(self, base_dataset):
+        from genflows.utils.masking_lobes import generate_training_mask
+        self.base_dataset = base_dataset
+        self._generate_mask = generate_training_mask
+
+    def __len__(self):
+        return len(self.base_dataset)
+
+    def __getitem__(self, idx):
+        facies, cond = self.base_dataset[idx]
+        mask = self._generate_mask((50, 50, 50))
+        return facies, cond, mask
+
+
 def get_lobe_loaders(data_dir='data', batch_size=32, ntg_min=0.05, ntg_max=0.95,
                      test_split=0.1, val_split=0.1, seed=42):
     """Create train/val/test DataLoaders for the lobe dataset."""
@@ -116,5 +133,27 @@ def get_lobe_loaders(data_dir='data', batch_size=32, ntg_min=0.05, ntg_max=0.95,
     train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=2)
     val_loader = DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=2)
     test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=2)
+
+    return train_loader, val_loader, test_loader, dataset
+
+
+def get_lobe_inpaint_loaders(data_dir='data', batch_size=32, ntg_min=0.05, ntg_max=0.95,
+                              test_split=0.1, val_split=0.1, seed=42):
+    """Create train/val/test DataLoaders with on-the-fly mask generation for inpainting."""
+    dataset = LobeDataset(data_dir=data_dir, ntg_min=ntg_min, ntg_max=ntg_max)
+
+    n = len(dataset)
+    test_size = int(test_split * n)
+    val_size = int(val_split * n)
+    train_size = n - test_size - val_size
+
+    generator = torch.Generator().manual_seed(seed)
+    train_set, val_set, test_set = torch.utils.data.random_split(
+        dataset, [train_size, val_size, test_size], generator=generator
+    )
+
+    train_loader = DataLoader(LobeInpaintDataset(train_set), batch_size=batch_size, shuffle=True, num_workers=2)
+    val_loader = DataLoader(LobeInpaintDataset(val_set), batch_size=batch_size, shuffle=False, num_workers=2)
+    test_loader = DataLoader(LobeInpaintDataset(test_set), batch_size=batch_size, shuffle=False, num_workers=2)
 
     return train_loader, val_loader, test_loader, dataset

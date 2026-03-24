@@ -96,6 +96,61 @@ def train_model(method, dataloader, epochs=5, lr=1e-3, ema_decay=0.9999, acceler
     return epoch_losses
 
 
+def train_model_inpaint(method, dataloader, epochs=5, lr=1e-3, ema_decay=0.9999, accelerator=None):
+    """Training loop for inpainting models. Dataloader yields (x, cond, mask)."""
+    if accelerator is None:
+        accelerator = Accelerator()
+
+    optimizer = torch.optim.AdamW(method.model.parameters(), lr=lr)
+    scheduler = _make_scheduler(optimizer, epochs, accelerator.num_processes)
+
+    method.model, optimizer, dataloader, scheduler = accelerator.prepare(
+        method.model, optimizer, dataloader, scheduler
+    )
+
+    method.model.train()
+    ema = EMA(method.model, decay=ema_decay)
+    use_ema_target = (hasattr(method, 'compute_loss')
+                      and 'target_params' in method.compute_loss.__code__.co_varnames)
+
+    epoch_losses = []
+
+    for epoch in range(epochs):
+        total_loss = 0
+        num_batches = 0
+        pbar = tqdm(dataloader, desc=f"Epoch {epoch+1}/{epochs}",
+                    disable=not accelerator.is_main_process)
+        for x, cond, mask in pbar:
+            # Set inpaint context on the raw (unwrapped) model
+            inpaint_data = x * mask
+            raw = method.model.module if hasattr(method.model, 'module') else method.model
+            raw.set_inpaint_context(mask, inpaint_data)
+
+            optimizer.zero_grad()
+            if use_ema_target:
+                loss = method.compute_loss(x, cond, target_params=ema.shadow)
+            else:
+                loss = method.compute_loss(x, cond)
+            accelerator.backward(loss)
+            torch.nn.utils.clip_grad_norm_(method.model.parameters(), max_norm=1.0)
+            optimizer.step()
+            ema.update(method.model)
+
+            total_loss += loss.item()
+            num_batches += 1
+            pbar.set_postfix({'loss': f"{loss.item():.4f}"})
+
+        scheduler.step()
+        epoch_losses.append(total_loss / num_batches)
+
+    # Clean up
+    raw = method.model.module if hasattr(method.model, 'module') else method.model
+    raw.clear_inpaint_context()
+    ema.apply(method.model)
+    method.model = accelerator.unwrap_model(method.model)
+    return epoch_losses
+
+
 def train_reflow(method, paired_dataset, epochs=5, lr=1e-3, batch_size=128, ema_decay=0.9999, accelerator=None):
     """Train a model on pre-generated coupled (x0, x1, labels) pairs for reflow."""
     if accelerator is None:

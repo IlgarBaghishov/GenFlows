@@ -5,7 +5,7 @@
 Generative modeling methods with a shared, modular architecture. Methods are pure math (model-agnostic); models handle all conditioning details. Currently supports two datasets:
 
 - **MNIST** — 2D digit generation (32x32), class-conditional (10 digits)
-- **Lobes** — 3D geological lobe generation (50x50x50 binary voxels), continuous-conditional (height, radius, aspect_ratio, angle, net-to-gross)
+- **Lobes** — 3D geological lobe generation (50x50x50 binary voxels), continuous-conditional (height, radius, aspect_ratio, angle, net-to-gross), with optional inpainting (wells, boundaries, cross-sections)
 
 Methods:
 - **Diffusion** (DDPM + DDIM sampling, with x0-clipping for stable CFG)
@@ -27,8 +27,9 @@ genflows/
 │   └── rectified_flow.py  # Rectified Flow: forward/backward/bidirectional reflow with coupled pairs
 └── utils/
     ├── data.py            # MNIST loading (padded to 32x32, normalized to [-1,1])
-    ├── data_lobes.py      # Lobe dataset: facies loading, NTG computation, filtering, normalization
-    ├── training.py        # Training loop (AdamW, cosine LR, grad clipping, EMA with target network) + train_reflow
+    ├── data_lobes.py      # Lobe dataset: facies loading, NTG computation, filtering, normalization + inpaint wrapper
+    ├── masking_lobes.py   # Inpainting mask generation: wells, boundaries, cross-sections, combinations
+    ├── training.py        # Training loop (AdamW, cosine LR, grad clipping, EMA with target network) + train_reflow + train_model_inpaint
     └── plotting.py        # Sample grids and loss curves
 
 examples/
@@ -38,6 +39,8 @@ examples/
 └── lobes/
     ├── train.py           # Train all 8 lobe models
     ├── sample.py          # Generate 3D lobe samples from checkpoints
+    ├── train_inpaint.py   # Train inpainting models (3-channel input: noisy_x + known_data + mask)
+    ├── sample_inpaint.py  # Generate inpainted 3D samples from checkpoints
     └── data/              # facies.npy, parameters.csv, failed_cases.npy
 
 meanflow_paper_latex/      # LaTeX source for the MeanFlow paper
@@ -68,6 +71,13 @@ python examples/lobes/sample.py     # Generate 3D samples from checkpoints
 accelerate launch examples/lobes/train.py  # Multi-GPU
 ```
 
+### Lobes Inpainting (3D)
+```bash
+python examples/lobes/train_inpaint.py      # Train inpainting models
+python examples/lobes/sample_inpaint.py     # Generate inpainted samples
+accelerate launch examples/lobes/train_inpaint.py  # Multi-GPU
+```
+
 ## Architecture: Model ↔ Method Interface
 
 Methods and models are decoupled through a minimal interface:
@@ -93,6 +103,7 @@ model(x, t, cond, drop_mask=m)   # mixed batch: null conditioning for masked sam
 - Continuous conditioning: 5 inputs [height, radius, aspect_ratio, angle_deg, ntg] normalized to [0,1] by dataset
 - Angle internally converted to sin(2π·angle_norm) and cos(2π·angle_norm) for 180° periodicity
 - Learned null embedding vector (`nn.Parameter`) for CFG unconditional
+- **Inpainting mode** (`in_channels=3, out_channels=1`): takes `[noisy_x, known_clean_values, binary_mask]` as 3 input channels via channel concatenation. Inpaint context is set via stateful `set_inpaint_context(mask, data)` / `clear_inpaint_context()` — methods remain completely untouched
 
 ## Key Implementation Details
 
@@ -115,3 +126,17 @@ model(x, t, cond, drop_mask=m)   # mixed batch: null conditioning for masked sam
   - **MeanFlow supports two CFG modes** (`cfg_mode` argument):
     - `'standard'`: CFG applied at sampling time (2 NFE/step, same as other methods)
     - `'embedded'`: CFG baked into training target per paper Sec 4.2 / Eq. 17-21; replaces `v_t` with `ṽ_t = ω·v_t + κ·u_cond + (1-ω-κ)·u_uncond` in both JVP tangent and target, enabling 1-NFE sampling
+- **3D Inpainting** (lobe-specific):
+  - Channel concatenation: model takes `[noisy_x, known_values, mask]` (3 input channels), outputs 1 channel
+  - Stateful context: `model.set_inpaint_context(mask, data)` stores mask/data as instance attributes; `forward()` concatenates them to input before `init_conv`. Methods are completely unaware of inpainting
+  - MeanFlow JVP compatible: stored context tensors are `.detach()`ed constants with zero tangent in `torch.func.jvp`
+  - Mask convention: 1 = known (keep), 0 = unknown (generate)
+  - Training distribution: 30% no mask (unconditional), 70% with mask (1/6 wells, 1/6 boundaries, 1/6 cross-sections, 1/2 combinations)
+  - Mask types (`genflows/utils/masking_lobes.py`):
+    - **Wells**: 1-5 per sample, variable depth, 1 voxel wide, 50% vertical / 50% L-shaped horizontal, non-intersecting
+    - **Boundaries**: 1-6 faces, 1-3 voxels thick per face (for autoregressive reservoir generation)
+    - **Cross-sections**: 1 voxel thick, any angle in x-y plane, up to 30° z-tilt (for seismic conditioning)
+    - **Combinations**: union of any 2 or all 3 types
+  - Sampling: no re-injection during denoising (matches training); hard replacement of known voxels only at the final step via `apply_inpaint_output(samples, mask, known_data)`
+  - Data: `LobeInpaintDataset` wraps `LobeDataset` with on-the-fly mask generation; `get_lobe_inpaint_loaders` returns DataLoaders yielding `(facies, cond, mask)` triples
+  - Training: `train_model_inpaint` in `training.py` unpacks 3-element batches, sets inpaint context on unwrapped model before `compute_loss`

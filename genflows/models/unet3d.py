@@ -57,14 +57,21 @@ class UNet3D(nn.Module):
     """
 
     def __init__(self, in_channels=1, hidden_dims=None, time_dim=256,
-                 num_cond=5, num_time_embs=1):
+                 num_cond=5, num_time_embs=1, out_channels=None):
         super().__init__()
         if hidden_dims is None:
             hidden_dims = [64, 64, 128, 128]
+        if out_channels is None:
+            out_channels = in_channels
 
+        self.in_channels = in_channels
         self.time_dim = time_dim
         self.num_time_embs = num_time_embs
         self.num_cond = num_cond
+
+        # Inpaint context (set via set_inpaint_context for channel concat)
+        self._inpaint_mask = None
+        self._inpaint_data = None
 
         # Time embedding
         sub_dim = time_dim // num_time_embs
@@ -120,8 +127,23 @@ class UNet3D(nn.Module):
         self.final_conv = nn.Sequential(
             nn.Conv3d(hidden_dims[0], hidden_dims[0], 3, padding=1),
             nn.SiLU(),
-            nn.Conv3d(hidden_dims[0], in_channels, 1)
+            nn.Conv3d(hidden_dims[0], out_channels, 1)
         )
+
+    def set_inpaint_context(self, mask, data):
+        """Store inpaint mask and known data for channel concatenation in forward.
+
+        Args:
+            mask: (B, 1, D, H, W) float tensor, 1=known 0=unknown
+            data: (B, 1, D, H, W) float tensor, clean values where mask=1
+        """
+        self._inpaint_mask = mask.detach()
+        self._inpaint_data = data.detach()
+
+    def clear_inpaint_context(self):
+        """Remove stored inpaint context."""
+        self._inpaint_mask = None
+        self._inpaint_data = None
 
     def _process_conditioning(self, cond):
         """Convert raw conditioning to model input.
@@ -167,6 +189,17 @@ class UNet3D(nn.Module):
             c_emb = self.null_cond_emb.unsqueeze(0).expand(x.shape[0], -1)
 
         t_emb = t_emb + c_emb
+
+        # Inpaint channel concatenation (only for in_channels > 1)
+        if self.in_channels > 1:
+            if self._inpaint_mask is not None:
+                x = torch.cat([x, self._inpaint_data, self._inpaint_mask], dim=1)
+            else:
+                zeros = torch.zeros(
+                    x.shape[0], self.in_channels - 1, *x.shape[2:],
+                    device=x.device, dtype=x.dtype
+                )
+                x = torch.cat([x, zeros], dim=1)
 
         # Encoder
         x = self.init_conv(x)
