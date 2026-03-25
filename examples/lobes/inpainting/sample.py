@@ -15,7 +15,7 @@ from genflows.utils.masking_lobes import (
 from genflows.utils.data_lobes import LobeDataset
 
 
-def load_cond_stats(path='checkpoints_inpaint/cond_stats.npz'):
+def load_cond_stats(path='checkpoints/cond_stats.npz'):
     stats = np.load(path)
     return stats['cond_min'], stats['cond_max']
 
@@ -24,7 +24,7 @@ def normalize_cond(raw_cond, cond_min, cond_max):
     return (raw_cond - cond_min) / (cond_max - cond_min + 1e-8)
 
 
-def load_method_inpaint(name, ckpt_path, device):
+def load_method(name, ckpt_path, device):
     """Load an inpainting method with in_channels=3."""
     if name == 'diffusion':
         model = UNet3D(in_channels=3, out_channels=1, num_time_embs=1).to(device)
@@ -76,7 +76,7 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
 
-    os.makedirs("results_inpaint", exist_ok=True)
+    os.makedirs("results", exist_ok=True)
 
     # Load normalization stats
     cond_min, cond_max = load_cond_stats()
@@ -86,7 +86,7 @@ def main():
         print(f"  {name}: [{cond_min[i]:.2f}, {cond_max[i]:.2f}]")
 
     # Load test data to use as ground truth for mask creation
-    dataset = LobeDataset(data_dir='data')
+    dataset = LobeDataset(data_dir='../data')
     n_samples = 4
     print(f"\nLoading {n_samples} test volumes as ground truth for inpainting...")
     gt_facies = []
@@ -101,25 +101,25 @@ def main():
 
     shape = (n_samples, 1, 50, 50, 50)
 
-    # Load all available inpainting methods
+    # Load all available methods
     methods = {}
     checkpoints = {
-        # 'diffusion': 'checkpoints_inpaint/diffusion_inpaint.pt',
-        'flow_matching': 'checkpoints_inpaint/flow_matching_inpaint.pt',
-        # 'rectified_flow': 'checkpoints_inpaint/rectified_flow_inpaint.pt',
-        # 'meanflow_std': 'checkpoints_inpaint/meanflow_std_inpaint.pt',
-        # 'meanflow_embed': 'checkpoints_inpaint/meanflow_embed_inpaint.pt',
+        # 'diffusion': 'checkpoints/diffusion.pt',
+        'flow_matching': 'checkpoints/flow_matching.pt',
+        # 'rectified_flow': 'checkpoints/rectified_flow.pt',
+        # 'meanflow_std': 'checkpoints/meanflow_std.pt',
+        # 'meanflow_embed': 'checkpoints/meanflow_embed.pt',
     }
 
     for name, path in checkpoints.items():
         if os.path.exists(path):
             print(f"Loading {name} from {path}")
-            methods[name] = load_method_inpaint(name, path, device)
+            methods[name] = load_method(name, path, device)
         else:
             print(f"WARNING: {path} not found, skipping {name}")
 
     if not methods:
-        print("No checkpoints found. Run train_inpaint.py first.")
+        print("No checkpoints found. Run train.py first.")
         return
 
     # Define mask scenarios to test
@@ -157,18 +157,18 @@ def main():
             print(f"  {method_name}: {elapsed:.2f}s")
 
             # Save results
-            fname = f"results_inpaint/inpaint_{method_name}_{scenario_name}_{n_steps}steps.npy"
+            fname = f"results/{method_name}_{scenario_name}_{n_steps}steps.npy"
             np.save(fname, binary.cpu().numpy())
 
         # Also save the mask and ground truth for comparison
-        np.save(f"results_inpaint/mask_{scenario_name}.npy", mask.cpu().numpy())
+        np.save(f"results/mask_{scenario_name}.npy", mask.cpu().numpy())
 
     # Save ground truth
     gt_binary = (gt_facies > 0).float()
-    np.save("results_inpaint/ground_truth.npy", gt_binary.cpu().numpy())
-    np.save("results_inpaint/ground_truth_cond.npy", gt_cond.cpu().numpy())
+    np.save("results/ground_truth.npy", gt_binary.cpu().numpy())
+    np.save("results/ground_truth_cond.npy", gt_cond.cpu().numpy())
 
-    print("\nDone! Results saved to 'results_inpaint/'.")
+    print("\nDone! Results saved to 'results/'.")
 
 
 if __name__ == "__main__":

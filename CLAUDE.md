@@ -37,11 +37,15 @@ examples/
 │   ├── train.py           # Train all 8 MNIST models
 │   └── sample.py          # Generate MNIST samples from checkpoints
 └── lobes/
-    ├── train.py           # Train all 8 lobe models
-    ├── sample.py          # Generate 3D lobe samples from checkpoints
-    ├── train_inpaint.py   # Train inpainting models (3-channel input: noisy_x + known_data + mask)
-    ├── sample_inpaint.py  # Generate inpainted 3D samples from checkpoints
-    └── data/              # facies.npy, parameters.csv, failed_cases.npy
+    ├── data/              # facies.npy, parameters.csv, failed_cases.npy (shared)
+    ├── standard/          # Standard generation (no inpainting)
+    │   ├── train.py       # Train all 8 lobe models
+    │   ├── sample.py      # Generate 3D lobe samples from checkpoints
+    │   └── sample_and_plot.ipynb
+    └── inpainting/        # Inpainting (3-channel: noisy_x + known_data + mask)
+        ├── train.py       # Train inpainting models
+        ├── sample.py      # Generate inpainted 3D samples
+        └── sample_and_plot.ipynb
 
 meanflow_paper_latex/      # LaTeX source for the MeanFlow paper
 meanflow.pdf               # Compiled paper
@@ -66,16 +70,18 @@ accelerate launch examples/mnist/train.py  # Multi-GPU
 
 ### Lobes (3D)
 ```bash
-python examples/lobes/train.py      # Train all 8 models
-python examples/lobes/sample.py     # Generate 3D samples from checkpoints
-accelerate launch examples/lobes/train.py  # Multi-GPU
+cd examples/lobes/standard
+python train.py                    # Train all 8 models
+python sample.py                   # Generate 3D samples from checkpoints
+accelerate launch train.py         # Multi-GPU
 ```
 
 ### Lobes Inpainting (3D)
 ```bash
-python examples/lobes/train_inpaint.py      # Train inpainting models
-python examples/lobes/sample_inpaint.py     # Generate inpainted samples
-accelerate launch examples/lobes/train_inpaint.py  # Multi-GPU
+cd examples/lobes/inpainting
+python train.py                    # Train inpainting models
+python sample.py                   # Generate inpainted samples
+accelerate launch train.py         # Multi-GPU
 ```
 
 ## Architecture: Model ↔ Method Interface

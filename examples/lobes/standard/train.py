@@ -20,13 +20,13 @@ def main():
 
     # Load data on main process first (computes NTG, filters)
     if accelerator.is_main_process:
-        get_lobe_loaders(data_dir='data', batch_size=32)
+        get_lobe_loaders(data_dir='../data', batch_size=32)
         os.makedirs("checkpoints", exist_ok=True)
         os.makedirs("results", exist_ok=True)
     accelerator.wait_for_everyone()
 
     train_loader, val_loader, test_loader, dataset = get_lobe_loaders(
-        data_dir='data', batch_size=32
+        data_dir='../data', batch_size=32
     )
     accelerator.print(f"Dataset: {len(dataset)} samples after filtering")
     accelerator.print(f"  Train: {len(train_loader.dataset)}, Val: {len(val_loader.dataset)}, Test: {len(test_loader.dataset)}")
