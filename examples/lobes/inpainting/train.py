@@ -1,4 +1,6 @@
 import os
+import shutil
+import numpy as np
 import torch
 from accelerate import Accelerator
 
@@ -10,6 +12,9 @@ from genflows.methods.rectified_flow import RectifiedFlow
 from genflows.utils.data_lobes import get_lobe_inpaint_loaders
 from genflows.utils.plotting import plot_loss
 from genflows.utils.training import train_model_inpaint
+
+CHECKPOINT_DIR = 'checkpoints'
+SAVE_EVERY = 50  # save intermediate checkpoints every 50 epochs
 
 
 def main():
@@ -34,8 +39,7 @@ def main():
 
     # Save dataset normalization stats for sampling
     if accelerator.is_main_process:
-        import numpy as np
-        np.savez('checkpoints/cond_stats.npz',
+        np.savez(os.path.join(CHECKPOINT_DIR, 'cond_stats.npz'),
                  cond_min=dataset.cond_min, cond_max=dataset.cond_max)
 
     # Per-method epoch counts
@@ -48,7 +52,8 @@ def main():
     # accelerator.print("\n--- Training Diffusion Inpaint (DDPM) ---")
     # model_diff = UNet3D(in_channels=3, out_channels=1, num_time_embs=1).to(device)
     # method_diff = Diffusion(model_diff, n_steps=1000)
-    # loss_diff = train_model_inpaint(method_diff, train_loader, epochs=epochs_ddpm, accelerator=accelerator)
+    # loss_diff = train_model_inpaint(method_diff, train_loader, epochs=epochs_ddpm,
+    #     accelerator=accelerator, checkpoint_dir=CHECKPOINT_DIR, save_every=SAVE_EVERY)
     # if accelerator.is_main_process:
     #     torch.save(method_diff.model.state_dict(), "checkpoints/diffusion.pt")
     #     plot_loss(loss_diff, "Diffusion Inpaint Training Loss", "results/loss_diffusion.png")
@@ -57,16 +62,21 @@ def main():
     accelerator.print("\n--- Training Flow Matching Inpaint ---")
     model_fm = UNet3D(in_channels=3, out_channels=1, num_time_embs=1).to(device)
     method_fm = FlowMatching(model_fm)
-    loss_fm = train_model_inpaint(method_fm, train_loader, epochs=epochs_fm, accelerator=accelerator)
+    loss_fm = train_model_inpaint(
+        method_fm, train_loader, epochs=epochs_fm, accelerator=accelerator,
+        checkpoint_dir=CHECKPOINT_DIR, save_every=SAVE_EVERY,
+    )
     if accelerator.is_main_process:
         torch.save(method_fm.model.state_dict(), "checkpoints/flow_matching.pt")
+        np.save(os.path.join(CHECKPOINT_DIR, 'loss_history_fm.npy'), np.array(loss_fm))
         plot_loss(loss_fm, "Flow Matching Inpaint Training Loss", "results/loss_flow_matching.png")
 
     # # --- 3. Rectified Flow (round 1 only — reflow pairs with inpaint deferred) ---
     # accelerator.print("\n--- Training Rectified Flow Inpaint ---")
     # model_rf = UNet3D(in_channels=3, out_channels=1, num_time_embs=1).to(device)
     # method_rf = RectifiedFlow(model_rf)
-    # loss_rf = train_model_inpaint(method_rf, train_loader, epochs=epochs_fm, accelerator=accelerator)
+    # loss_rf = train_model_inpaint(method_rf, train_loader, epochs=epochs_fm,
+    #     accelerator=accelerator, checkpoint_dir=CHECKPOINT_DIR, save_every=SAVE_EVERY)
     # if accelerator.is_main_process:
     #     torch.save(method_rf.model.state_dict(), "checkpoints/rectified_flow.pt")
     #     plot_loss(loss_rf, "Rectified Flow Inpaint Training Loss", "results/loss_rectified_flow.png")
@@ -75,7 +85,8 @@ def main():
     # accelerator.print("\n--- Training MeanFlow Inpaint (Standard CFG) ---")
     # model_mf = UNet3D(in_channels=3, out_channels=1, num_time_embs=2).to(device)
     # method_mf = MeanFlow(model_mf, cfg_mode='standard')
-    # loss_mf = train_model_inpaint(method_mf, train_loader, epochs=epochs_mf, accelerator=accelerator)
+    # loss_mf = train_model_inpaint(method_mf, train_loader, epochs=epochs_mf,
+    #     accelerator=accelerator, checkpoint_dir=CHECKPOINT_DIR, save_every=SAVE_EVERY)
     # if accelerator.is_main_process:
     #     torch.save(method_mf.model.state_dict(), "checkpoints/meanflow_std.pt")
     #     plot_loss(loss_mf, "MeanFlow Inpaint (Std CFG) Training Loss", "results/loss_meanflow.png")
@@ -84,7 +95,8 @@ def main():
     # accelerator.print("\n--- Training MeanFlow Inpaint (Embedded CFG) ---")
     # model_mf_cfg = UNet3D(in_channels=3, out_channels=1, num_time_embs=2).to(device)
     # method_mf_cfg = MeanFlow(model_mf_cfg, cfg_mode='embedded', omega=3.0, kappa=0.0)
-    # loss_mf_cfg = train_model_inpaint(method_mf_cfg, train_loader, epochs=epochs_mf, accelerator=accelerator)
+    # loss_mf_cfg = train_model_inpaint(method_mf_cfg, train_loader, epochs=epochs_mf,
+    #     accelerator=accelerator, checkpoint_dir=CHECKPOINT_DIR, save_every=SAVE_EVERY)
     # if accelerator.is_main_process:
     #     torch.save(method_mf_cfg.model.state_dict(), "checkpoints/meanflow_embed.pt")
     #     plot_loss(loss_mf_cfg, "MeanFlow Inpaint (Embed CFG) Training Loss", "results/loss_meanflow_embedded_cfg.png")

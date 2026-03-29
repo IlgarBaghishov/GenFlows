@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -J genflows
+#SBATCH -J genflows-inpaint
 #SBATCH --account=m1883_g
 #SBATCH --constraint=gpu
 #SBATCH --gpus-per-node=4
