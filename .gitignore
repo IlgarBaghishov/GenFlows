@@ -7,6 +7,5 @@ checkpoints/
 results/
 data/
 meanflow_paper_latex/
-CNN/
 
 slurm*.log
