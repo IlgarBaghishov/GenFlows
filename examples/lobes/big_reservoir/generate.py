@@ -31,7 +31,7 @@ from genflows.assembly import (
 
 GRID_SHAPE = (10, 10)       # (ny, nx) blocks
 BLOCK_SIZE = 50
-OVERLAP = 5                 # overlap voxels for smooth blending between neighbors
+OVERLAP = 20                 # overlap voxels for smooth blending between neighbors
 N_STEPS = 50
 CFG_SCALE = 3.0
 SEED = 42
@@ -47,7 +47,7 @@ HEIGHT_RANGE = (0.8, 0.2)       # along Y
 RADIUS_RANGE = (0.8, 0.2)       # along Y
 ASPECT_RATIO_RANGE = (0.8, 0.2) # along Y (same direction as height/radius)
 AZIMUTH_RANGE = (0.1, 0.9)      # along X
-NTG = 0.5                       # fixed
+NTG = 0.7                       # fixed
 
 # Wells
 N_WELLS_PER_BLOCK = 2

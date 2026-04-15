@@ -28,11 +28,11 @@ CFG_SCALE = 3.0
 
 # Height sweep: centered on 25, dense near center, spreading outward
 HEIGHT_VALUES = [5, 10, 15, 20, 23, 24, 24.5, 25, 25.5, 26, 27, 30, 35, 40, 45]
-HEIGHT_FIXED = dict(radius=16.5, aspect_ratio=2.0, azimuth=90.0, ntg=0.5)
+HEIGHT_FIXED = dict(radius=16.5, aspect_ratio=2.0, azimuth=90.0, ntg=0.7)
 
 # Radius sweep: centered on 16.5, dense near center, spreading outward
 RADIUS_VALUES = [3, 6, 10, 13, 15, 16, 16.5, 17, 18, 20, 23, 27, 30]
-RADIUS_FIXED = dict(height=25.0, aspect_ratio=2.0, azimuth=90.0, ntg=0.5)
+RADIUS_FIXED = dict(height=25.0, aspect_ratio=2.0, azimuth=90.0, ntg=0.7)
 
 
 def normalize(raw, cond_min, cond_max):

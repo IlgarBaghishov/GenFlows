@@ -57,7 +57,7 @@ def main():
     parser.add_argument('--n_steps', type=int, default=50, help='Sampling steps')
     parser.add_argument('--cfg_scale', type=float, default=3.0, help='CFG scale')
     parser.add_argument('--batch_size', type=int, default=32, help='Generation batch size')
-    parser.add_argument('--cnn_weights', type=str, default='../CNN/best_geology_model10.pth')
+    parser.add_argument('--cnn_weights', type=str, default='../CNN/cnn3d_property_predictor.pth')
     parser.add_argument('--data_dir', type=str, default='../data')
     args = parser.parse_args()
 
