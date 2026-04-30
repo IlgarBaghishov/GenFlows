@@ -57,7 +57,14 @@ class UNet3D(nn.Module):
     """
 
     def __init__(self, in_channels=1, hidden_dims=None, time_dim=256,
-                 num_cond=5, num_time_embs=1, out_channels=None):
+                 num_cond=5, num_time_embs=1, out_channels=None,
+                 expand_angle_idx=3):
+        """
+        expand_angle_idx: index in `cond` whose value is replaced by sin/cos
+            (used for periodic angle conditioning, lobes default = 3).
+            Set to None when conditioning is already pre-processed by the
+            dataset (e.g. one-hot + sin/cos baked in).
+        """
         super().__init__()
         if hidden_dims is None:
             hidden_dims = [64, 64, 128, 128]
@@ -68,6 +75,7 @@ class UNet3D(nn.Module):
         self.time_dim = time_dim
         self.num_time_embs = num_time_embs
         self.num_cond = num_cond
+        self.expand_angle_idx = expand_angle_idx
 
         # Inpaint context (set via set_inpaint_context for channel concat)
         self._inpaint_mask = None
@@ -86,8 +94,8 @@ class UNet3D(nn.Module):
         )
 
         # Conditioning embedding
-        # 5 inputs -> angle becomes sin+cos -> 6 values -> MLP -> time_dim
-        cond_input_dim = num_cond + 1  # angle replaced by sin, cos
+        # If expand_angle_idx is set, one input is replaced by sin+cos -> +1 dim.
+        cond_input_dim = num_cond + (1 if expand_angle_idx is not None else 0)
         self.cond_mlp = nn.Sequential(
             nn.Linear(cond_input_dim, time_dim),
             nn.SiLU(),
@@ -146,19 +154,18 @@ class UNet3D(nn.Module):
         self._inpaint_data = None
 
     def _process_conditioning(self, cond):
-        """Convert raw conditioning to model input.
+        """Optionally replace the periodic angle entry with sin/cos.
 
-        Args:
-            cond: (B, 5) tensor [height, radius, aspect_ratio, angle, ntg]
-                  all normalized to [0, 1] by the dataset.
-
-        Returns:
-            (B, 6) tensor [height, radius, aspect_ratio, sin, cos, ntg]
+        If expand_angle_idx is None, returns cond unchanged (dataset is
+        expected to have done any preprocessing already).
         """
-        angle_norm = cond[:, 3:4]
-        sin_angle = torch.sin(2 * math.pi * angle_norm)
-        cos_angle = torch.cos(2 * math.pi * angle_norm)
-        return torch.cat([cond[:, :3], sin_angle, cos_angle, cond[:, 4:5]], dim=1)
+        i = self.expand_angle_idx
+        if i is None:
+            return cond
+        angle_norm = cond[:, i:i+1]
+        sin_a = torch.sin(2 * math.pi * angle_norm)
+        cos_a = torch.cos(2 * math.pi * angle_norm)
+        return torch.cat([cond[:, :i], sin_a, cos_a, cond[:, i+1:]], dim=1)
 
     def forward(self, x, *args, drop_mask=None):
         # Parse args: last 2D tensor is conditioning, rest are time(s)

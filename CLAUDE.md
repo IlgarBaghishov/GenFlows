@@ -6,6 +6,7 @@ Generative modeling methods with a shared, modular architecture. Methods are pur
 
 - **MNIST** — 2D digit generation (32x32), class-conditional (10 digits)
 - **Lobes** — 3D geological lobe generation (50x50x50 binary voxels), continuous-conditional (height, radius, aspect_ratio, angle, net-to-gross), with optional inpainting (wells, boundaries, cross-sections)
+- **Reservoirs** — 3D siliciclastic-reservoir binary facies (64x64x32) from SciLM-ai/SiliciclasticReservoirs (1M cubes across 8 architectures); cond is layer-type one-hot + universal scalars (ntg, width_cells, depth_cells, azimuth sin/cos) + family-specific scalars (asp / mCHsinu / mFFCHprop / probAvulInside / trunk_length_fraction; 0 outside family). Caption / poro_ave / perm_ave excluded.
 
 Methods:
 - **Diffusion** (DDPM + DDIM sampling, with x0-clipping for stable CFG)
@@ -28,6 +29,7 @@ genflows/
 └── utils/
     ├── data.py            # MNIST loading (padded to 32x32, normalized to [-1,1])
     ├── data_lobes.py      # Lobe dataset: facies loading, NTG computation, filtering, normalization + inpaint wrapper
+    ├── data_reservoirs.py # SiliciclasticReservoirs sharded loader (binary facies + slim params, layer-type aware cond cache)
     ├── masking_lobes.py   # Inpainting mask generation: wells, boundaries, cross-sections, combinations
     ├── training.py        # Training loop (AdamW, cosine LR, grad clipping, EMA with target network) + train_reflow + train_model_inpaint
     └── plotting.py        # Sample grids and loss curves
@@ -37,15 +39,19 @@ examples/
 │   ├── train.py           # Train all 8 MNIST models
 │   └── sample.py          # Generate MNIST samples from checkpoints
 └── lobes/
-    ├── data/              # facies.npy, parameters.csv, failed_cases.npy (shared)
-    ├── standard/          # Standard generation (no inpainting)
-    │   ├── train.py       # Train all 8 lobe models
-    │   ├── sample.py      # Generate 3D lobe samples from checkpoints
-    │   └── sample_and_plot.ipynb
-    └── inpainting/        # Inpainting (3-channel: noisy_x + known_data + mask)
-        ├── train.py       # Train inpainting models
-        ├── sample.py      # Generate inpainted 3D samples
-        └── sample_and_plot.ipynb
+│   ├── data/              # facies.npy, parameters.csv, failed_cases.npy (shared)
+│   ├── standard/          # Standard generation (no inpainting)
+│   │   ├── train.py       # Train all 8 lobe models
+│   │   ├── sample.py      # Generate 3D lobe samples from checkpoints
+│   │   └── sample_and_plot.ipynb
+│   └── inpainting/        # Inpainting (3-channel: noisy_x + known_data + mask)
+│       ├── train.py       # Train inpainting models
+│       ├── sample.py      # Generate inpainted 3D samples
+│       └── sample_and_plot.ipynb
+└── reservoirs/
+    └── standard/          # SiliciclasticReservoirs binary-facies flow matching
+        ├── train.py       # Trains FM on full 1M cubes; data dir defaults to $SCRATCH
+        └── run_vista.sh   # 4-node Vista launcher
 
 meanflow_paper_latex/      # LaTeX source for the MeanFlow paper
 meanflow.pdf               # Compiled paper
@@ -57,7 +63,16 @@ meanflow.pdf               # Compiled paper
 pip install -e .
 ```
 
-This installs the `genflows` package and all dependencies (torch, torchvision, matplotlib, tqdm, accelerate, pandas) via `pyproject.toml`.
+This installs the `genflows` package and all dependencies (torch, torchvision, matplotlib, tqdm, accelerate, pandas, pyarrow, huggingface_hub) via `pyproject.toml`.
+
+> **NEVER install into an existing conda env without asking the user first.**
+> The `torch` dep in `pyproject.toml` is unpinned and *will* upgrade an
+> existing torch (it has done so silently in the past, breaking other
+> packages in shared envs). Default to proposing a **fresh project-named
+> env** (e.g. `conda create -n genflows python=3.11 -y && conda activate
+> genflows && pip install -e .`) and let the user confirm or pick a name.
+> Convenience of an existing env that "happens to have torch" is **not** a
+> reason to install there.
 
 ## Running
 
@@ -83,6 +98,17 @@ python train.py                    # Train inpainting models
 python sample.py                   # Generate inpainted samples
 accelerate launch train.py         # Multi-GPU
 ```
+
+### Reservoirs (3D, SiliciclasticReservoirs)
+```bash
+cd examples/reservoirs/standard
+# Dataset defaults to /scratch/.../SiliciclasticReservoirs.
+# Override: RESERVOIR_DATA_DIR=/path/to/dataset python train.py
+python train.py                    # Single GPU
+sbatch run_vista.sh                # Multi-node Vista launcher
+```
+First run builds a per-split cond cache under `<data_dir>/_cond_cache/`
+(~10 s after the per-shard parquet sweep) so subsequent runs start instantly.
 
 ## Architecture: Model ↔ Method Interface
 

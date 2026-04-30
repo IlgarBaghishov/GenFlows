@@ -98,21 +98,12 @@ class LobeDataset(Dataset):
         return cond_norm * (cond_max - cond_min) + cond_min
 
 
-class LobeInpaintDataset(Dataset):
-    """Wraps a lobe dataset (or Subset) to add on-the-fly mask generation."""
+class LobeInpaintDataset:
+    """Backward-compat alias: InpaintDataset hard-coded to (50, 50, 50)."""
 
-    def __init__(self, base_dataset):
-        from genflows.utils.masking_lobes import generate_training_mask
-        self.base_dataset = base_dataset
-        self._generate_mask = generate_training_mask
-
-    def __len__(self):
-        return len(self.base_dataset)
-
-    def __getitem__(self, idx):
-        facies, cond = self.base_dataset[idx]
-        mask = self._generate_mask((50, 50, 50))
-        return facies, cond, mask
+    def __new__(cls, base_dataset):
+        from genflows.utils.masking import InpaintDataset
+        return InpaintDataset(base_dataset, volume_shape=(50, 50, 50))
 
 
 def get_lobe_loaders(data_dir='data', batch_size=32, ntg_min=0.05, ntg_max=0.95,

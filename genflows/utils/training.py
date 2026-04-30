@@ -51,27 +51,74 @@ class EMA:
             p.data.copy_(self.shadow[name])
 
 
-def train_model(method, dataloader, epochs=5, lr=1e-3, ema_decay=0.9999, accelerator=None):
+def train_model(method, dataloader, epochs=5, lr=1e-3, ema_decay=0.9999,
+                accelerator=None, checkpoint_dir=None, save_every=None,
+                total_epochs=None):
+    """Standard training loop.
+
+    Optional resumable-checkpointing (mirrors train_model_inpaint):
+        checkpoint_dir: if set, auto-resumes from <dir>/training_state.pt and
+            saves training_state.pt + inference_epoch{N:03d}.pt every save_every
+            epochs.
+        save_every: int — checkpoint cadence in epochs.
+        total_epochs: total training horizon for the LR scheduler. When
+            resuming a multi-segment run, pass the *original* total here so LR
+            decays smoothly across segments. Defaults to ``epochs``.
+    """
+    if total_epochs is None:
+        total_epochs = epochs
     if accelerator is None:
         accelerator = Accelerator()
 
+    resume_path = None
+    if checkpoint_dir and os.path.exists(os.path.join(checkpoint_dir, 'training_state.pt')):
+        resume_path = os.path.join(checkpoint_dir, 'training_state.pt')
+        accelerator.print(f"Found checkpoint at {resume_path}, resuming...")
+
     optimizer = torch.optim.AdamW(method.model.parameters(), lr=lr)
-    scheduler = _make_scheduler(optimizer, epochs, accelerator.num_processes)
+    scheduler = _make_scheduler(optimizer, total_epochs, accelerator.num_processes)
 
     method.model, optimizer, dataloader, scheduler = accelerator.prepare(
         method.model, optimizer, dataloader, scheduler
     )
 
+    start_epoch = 0
+    prior_losses = []
+    if resume_path:
+        ckpt = torch.load(resume_path, map_location=accelerator.device, weights_only=False)
+        raw = accelerator.unwrap_model(method.model)
+        raw.load_state_dict(ckpt['model_state_dict'])
+        optimizer.load_state_dict(ckpt['optimizer_state_dict'])
+        if 'scheduler_state_dict' in ckpt:
+            scheduler.load_state_dict(ckpt['scheduler_state_dict'])
+        else:
+            for _ in range(ckpt['epoch']):
+                scheduler.step()
+        start_epoch = ckpt['epoch']
+        prior_losses = ckpt.get('epoch_losses', [])
+        accelerator.print(f"Resumed from epoch {start_epoch}, prior loss: {prior_losses[-1]:.4f}")
+
     method.model.train()
     ema = EMA(method.model, decay=ema_decay)
+
+    if resume_path:
+        saved_shadow = ckpt['ema_shadow']
+        for name in ema.shadow:
+            clean = name[7:] if name.startswith('module.') else name
+            if clean in saved_shadow:
+                ema.shadow[name] = saved_shadow[clean].to(ema.shadow[name].device)
+        del ckpt
+
     use_ema_target = hasattr(method, 'compute_loss') and 'target_params' in method.compute_loss.__code__.co_varnames
 
-    epoch_losses = []
+    epoch_losses = list(prior_losses)
 
     for epoch in range(epochs):
+        global_epoch = start_epoch + epoch + 1
         total_loss = 0
         num_batches = 0
-        pbar = tqdm(dataloader, desc=f"Epoch {epoch+1}/{epochs}", disable=not accelerator.is_main_process)
+        desc = f"Epoch {global_epoch} ({epoch+1}/{epochs})" if checkpoint_dir else f"Epoch {epoch+1}/{epochs}"
+        pbar = tqdm(dataloader, desc=desc, disable=not accelerator.is_main_process)
         for x, labels in pbar:
             optimizer.zero_grad()
             # For MeanFlow, pass EMA shadow weights as stable JVP target (target network)
@@ -91,8 +138,44 @@ def train_model(method, dataloader, epochs=5, lr=1e-3, ema_decay=0.9999, acceler
         scheduler.step()
         epoch_losses.append(total_loss / num_batches)
 
+        if checkpoint_dir and save_every and global_epoch % save_every == 0:
+            if accelerator.is_main_process:
+                raw = accelerator.unwrap_model(method.model)
+                torch.save({
+                    'epoch': global_epoch,
+                    'model_state_dict': raw.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'scheduler_state_dict': scheduler.state_dict(),
+                    'ema_shadow': _strip_module_prefix(ema.shadow),
+                    'epoch_losses': epoch_losses,
+                }, os.path.join(checkpoint_dir, 'training_state.pt'))
+                _save_inference_checkpoint(
+                    method, ema, accelerator,
+                    os.path.join(checkpoint_dir, f'inference_epoch{global_epoch:03d}.pt'))
+                accelerator.print(f"Saved checkpoints at epoch {global_epoch}")
+            accelerator.wait_for_everyone()
+
+    final_epoch = start_epoch + epochs
+    if checkpoint_dir and accelerator.is_main_process:
+        already_saved = save_every and final_epoch % save_every == 0
+        if not already_saved:
+            raw = accelerator.unwrap_model(method.model)
+            torch.save({
+                'epoch': final_epoch,
+                'model_state_dict': raw.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict(),
+                'ema_shadow': _strip_module_prefix(ema.shadow),
+                'epoch_losses': epoch_losses,
+            }, os.path.join(checkpoint_dir, 'training_state.pt'))
+            _save_inference_checkpoint(
+                method, ema, accelerator,
+                os.path.join(checkpoint_dir, f'inference_epoch{final_epoch:03d}.pt'))
+            accelerator.print(f"Saved final checkpoints at epoch {final_epoch}")
+        if save_every:
+            accelerator.wait_for_everyone()
+
     ema.apply(method.model)
-    # Unwrap DDP model so method.model is the raw module again
     method.model = accelerator.unwrap_model(method.model)
     return epoch_losses
 
