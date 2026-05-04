@@ -26,13 +26,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-from genflows.models.unet3d import UNet3D
-from genflows.methods.flow_matching import FlowMatching
-from genflows.utils.data_reservoirs import (
+from resflow.models.unet3d import UNet3D
+from resflow.methods.flow_matching import FlowMatching
+from resflow.utils.data_reservoirs import (
     ReservoirDataset, COND_DIM, LAYER_TYPES, VOLUME_SHAPE,
 )
-from genflows.utils.masking import apply_inpaint_output
-from genflows.utils.plotting_lobes import custom_cmap, draw_mask_boundary
+from resflow.utils.masking import apply_inpaint_output
+from resflow.utils.plotting_lobes import custom_cmap, draw_mask_boundary
 
 
 DEFAULT_CKPT = os.path.join(os.environ.get('SCRATCH', '.'),

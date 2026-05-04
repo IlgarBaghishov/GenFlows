@@ -9,7 +9,7 @@ conda activate genflows
 MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n1)
 MASTER_PORT=29501
 
-cd $WORK/ls6/codes/GenFlows/examples/reservoirs/inpainting
+cd $WORK/ls6/codes/ResFlow/examples/reservoirs/inpainting
 
 torchrun \
   --nnodes="$SLURM_NNODES" \

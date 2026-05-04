@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -J genflows-inpaint
+#SBATCH -J resflow-inpaint
 #SBATCH --account=ALLOCATION_NAME  # set to your NERSC project allocation (e.g. xxxxxx_g)
 #SBATCH --constraint=gpu
 #SBATCH --gpus-per-node=4

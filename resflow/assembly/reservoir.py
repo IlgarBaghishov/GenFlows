@@ -15,7 +15,7 @@ import time
 import numpy as np
 import torch
 
-from genflows.utils.masking_lobes import apply_inpaint_output
+from resflow.utils.masking_lobes import apply_inpaint_output
 
 
 # ---------------------------------------------------------------------------

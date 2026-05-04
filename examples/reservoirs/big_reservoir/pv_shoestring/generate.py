@@ -18,9 +18,9 @@ import time
 import numpy as np
 import torch
 
-from genflows.models.unet3d import UNet3D
-from genflows.methods.flow_matching import FlowMatching
-from genflows.assembly import (
+from resflow.models.unet3d import UNet3D
+from resflow.methods.flow_matching import FlowMatching
+from resflow.assembly import (
     BlockSpec, COND_DIM, LAYER_TYPE_TO_IDX,
     generate_big_reservoir_multi,
 )

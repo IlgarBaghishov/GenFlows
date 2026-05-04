@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Generate all inpainting plots from saved .npy results.
 
-Uses plotting functions from genflows.utils.plotting_lobes.
+Uses plotting functions from resflow.utils.plotting_lobes.
 """
 import glob
 import os
@@ -11,7 +11,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-from genflows.utils.plotting_lobes import (
+from resflow.utils.plotting_lobes import (
     custom_cmap, draw_mask_boundary, plot_inpaint_comparison,
 )
 

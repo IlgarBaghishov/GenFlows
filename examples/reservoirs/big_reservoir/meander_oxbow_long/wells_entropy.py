@@ -27,13 +27,13 @@ import time
 import numpy as np
 import torch
 
-from genflows.models.unet3d import UNet3D
-from genflows.methods.flow_matching import FlowMatching
-from genflows.assembly import (
+from resflow.models.unet3d import UNet3D
+from resflow.methods.flow_matching import FlowMatching
+from resflow.assembly import (
     BlockSpec, COND_DIM, LAYER_TYPE_TO_IDX,
     build_cond_vector,
 )
-from genflows.assembly.big_reservoir_multi import _compute_blend_weights
+from resflow.assembly.big_reservoir_multi import _compute_blend_weights
 
 from generate import (
     CKPT, COND_STATS, GRID_SHAPE, BLOCK_SHAPE,

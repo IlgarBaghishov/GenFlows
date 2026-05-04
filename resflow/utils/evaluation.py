@@ -4,7 +4,7 @@ import pandas as pd
 import torch
 import matplotlib.pyplot as plt
 
-from genflows.models.cnn3d import CNN3D
+from resflow.models.cnn3d import CNN3D
 
 
 def compute_rmse(predicted, actual):

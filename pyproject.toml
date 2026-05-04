@@ -3,9 +3,9 @@ requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "genflows"
+name = "resflow"
 version = "0.1.0"
-description = "Unified generative modeling methods: Diffusion, Flow Matching, Rectified Flow, MeanFlow"
+description = "ResFlow: 3D generative models for siliciclastic-reservoir simulation"
 requires-python = ">=3.9"
 dependencies = [
     "torch",
@@ -19,4 +19,4 @@ dependencies = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["genflows*"]
+include = ["resflow*"]

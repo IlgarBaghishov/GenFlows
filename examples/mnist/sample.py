@@ -2,12 +2,12 @@ import os
 import time
 import torch
 
-from genflows.models.unet import UNet
-from genflows.methods.diffusion import Diffusion
-from genflows.methods.flow_matching import FlowMatching
-from genflows.methods.meanflow import MeanFlow
-from genflows.methods.rectified_flow import RectifiedFlow
-from genflows.utils.plotting import plot_samples
+from resflow.models.unet import UNet
+from resflow.methods.diffusion import Diffusion
+from resflow.methods.flow_matching import FlowMatching
+from resflow.methods.meanflow import MeanFlow
+from resflow.methods.rectified_flow import RectifiedFlow
+from resflow.utils.plotting import plot_samples
 
 
 def make_digit_labels(n_per_digit=10, device='cpu'):

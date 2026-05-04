@@ -17,7 +17,7 @@ Methods:
 ## Project Structure
 
 ```
-genflows/
+resflow/
 ├── models/
 │   ├── unet.py            # 2D UNet for images (class-conditional via learned embedding)
 │   └── unet3d.py          # 3D UNet for volumes (continuous-conditional via MLP + learned null embedding)
@@ -66,14 +66,14 @@ meanflow.pdf               # Compiled paper
 pip install -e .
 ```
 
-This installs the `genflows` package and all dependencies (torch, torchvision, matplotlib, tqdm, accelerate, pandas, pyarrow, huggingface_hub) via `pyproject.toml`.
+This installs the `resflow` package (ResFlow) and all dependencies (torch, torchvision, matplotlib, tqdm, accelerate, pandas, pyarrow, huggingface_hub) via `pyproject.toml`.
 
 > **NEVER install into an existing conda env without asking the user first.**
 > The `torch` dep in `pyproject.toml` is unpinned and *will* upgrade an
 > existing torch (it has done so silently in the past, breaking other
 > packages in shared envs). Default to proposing a **fresh project-named
-> env** (e.g. `conda create -n genflows python=3.12 -y && conda activate
-> genflows && pip install -e .`) and let the user confirm or pick a name.
+> env** (e.g. `conda create -n resflow python=3.12 -y && conda activate
+> resflow && pip install -e .`) and let the user confirm or pick a name.
 > Convenience of an existing env that "happens to have torch" is **not** a
 > reason to install there.
 >
@@ -174,7 +174,7 @@ model(x, t, cond, drop_mask=m)   # mixed batch: null conditioning for masked sam
   - MeanFlow JVP compatible: stored context tensors are `.detach()`ed constants with zero tangent in `torch.func.jvp`
   - Mask convention: 1 = known (keep), 0 = unknown (generate)
   - Training distribution: 30% no mask (unconditional), 70% with mask (1/6 wells, 1/6 boundaries, 1/6 cross-sections, 1/2 combinations)
-  - Mask types (`genflows/utils/masking_lobes.py`):
+  - Mask types (`resflow/utils/masking_lobes.py`):
     - **Wells**: 1-5 per sample, variable depth, 1 voxel wide, 50% vertical / 50% L-shaped horizontal, non-intersecting
     - **Boundaries**: 1-6 faces, 1-3 voxels thick per face (for autoregressive reservoir generation)
     - **Cross-sections**: 1 voxel thick, any angle in x-y plane, up to 30° z-tilt (for seismic conditioning)

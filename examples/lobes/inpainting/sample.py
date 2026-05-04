@@ -3,16 +3,16 @@ import time
 import numpy as np
 import torch
 
-from genflows.models.unet3d import UNet3D
-from genflows.methods.diffusion import Diffusion
-from genflows.methods.flow_matching import FlowMatching
-from genflows.methods.meanflow import MeanFlow
-from genflows.methods.rectified_flow import RectifiedFlow
-from genflows.utils.masking_lobes import (
+from resflow.models.unet3d import UNet3D
+from resflow.methods.diffusion import Diffusion
+from resflow.methods.flow_matching import FlowMatching
+from resflow.methods.meanflow import MeanFlow
+from resflow.methods.rectified_flow import RectifiedFlow
+from resflow.utils.masking_lobes import (
     generate_well_mask, generate_boundary_mask, generate_cross_section_mask,
     generate_combination_mask, apply_inpaint_output,
 )
-from genflows.utils.data_lobes import LobeDataset
+from resflow.utils.data_lobes import LobeDataset
 
 
 def load_cond_stats(path='checkpoints/cond_stats.npz'):

@@ -13,13 +13,13 @@ from torch.utils.data import DataLoader, Subset
 from accelerate import Accelerator
 from tqdm import tqdm
 
-from genflows.models.unet3d import UNet3D
-from genflows.methods.flow_matching import FlowMatching
-from genflows.utils.data_reservoirs import (
+from resflow.models.unet3d import UNet3D
+from resflow.methods.flow_matching import FlowMatching
+from resflow.utils.data_reservoirs import (
     ReservoirDataset, COND_DIM, LAYER_TYPES, VOLUME_SHAPE,
 )
-from genflows.utils.masking import InpaintDataset
-from genflows.utils.training import EMA, _make_scheduler
+from resflow.utils.masking import InpaintDataset
+from resflow.utils.training import EMA, _make_scheduler
 
 
 _scratch = os.environ.get('SCRATCH')

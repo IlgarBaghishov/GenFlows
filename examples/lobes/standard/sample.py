@@ -3,11 +3,11 @@ import time
 import numpy as np
 import torch
 
-from genflows.models.unet3d import UNet3D
-from genflows.methods.diffusion import Diffusion
-from genflows.methods.flow_matching import FlowMatching
-from genflows.methods.meanflow import MeanFlow
-from genflows.methods.rectified_flow import RectifiedFlow
+from resflow.models.unet3d import UNet3D
+from resflow.methods.diffusion import Diffusion
+from resflow.methods.flow_matching import FlowMatching
+from resflow.methods.meanflow import MeanFlow
+from resflow.methods.rectified_flow import RectifiedFlow
 
 
 def load_cond_stats(path='checkpoints/cond_stats.npz'):

@@ -276,7 +276,7 @@ def get_reservoir_loaders(data_dir, batch_size=32, num_workers=4, seed=42):
 
 def get_reservoir_inpaint_loaders(data_dir, batch_size=32, num_workers=4, seed=42):
     """Train / val / test inpaint DataLoaders. Each yields (facies, cond, mask)."""
-    from genflows.utils.masking import InpaintDataset
+    from resflow.utils.masking import InpaintDataset
 
     train_set = ReservoirDataset(data_dir, split='train')
     val_set = ReservoirDataset(data_dir, split='val',

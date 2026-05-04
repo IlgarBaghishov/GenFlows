@@ -102,7 +102,7 @@ class LobeInpaintDataset:
     """Backward-compat alias: InpaintDataset hard-coded to (50, 50, 50)."""
 
     def __new__(cls, base_dataset):
-        from genflows.utils.masking import InpaintDataset
+        from resflow.utils.masking import InpaintDataset
         return InpaintDataset(base_dataset, volume_shape=(50, 50, 50))
 
 

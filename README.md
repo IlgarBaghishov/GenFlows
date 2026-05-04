@@ -1,28 +1,14 @@
-# GenFlows
+# ResFlow
 
-A unified implementation of modern generative modeling methods with a modular, model-agnostic design. Methods are pure math; models handle all conditioning details. Any method works with any model out of the box.
+3D generative models for siliciclastic-reservoir simulation. Generates geologically plausible binary-facies volumes conditioned on layer-type, geological scalars, and well observations — with multi-block parallel denoising that assembles arbitrarily large reservoirs from a fixed 64×64×32 base model.
 
-| Method | What it learns | Sampling | Key idea |
-|---|---|---|---|
-| **Diffusion** (DDPM/DDIM) | Noise prediction | Iterative denoising (stochastic or deterministic) | Reverse a gradual noising process |
-| **Flow Matching** | Velocity field | Euler ODE integration | Learn the optimal transport map from noise to data |
-| **Rectified Flow** | Velocity field (straighter) | Euler ODE integration | Reflow: straighten ODE paths for fewer-step generation |
-| **MeanFlow** | Mean velocity | Single-step capable | JVP-based training enables one-step generation |
+## Highlights
 
-Currently supports two datasets:
-
-| Dataset | Dimensionality | Conditioning | Model |
-|---|---|---|---|
-| **MNIST** | 2D (32x32 images) | Discrete class labels (10 digits) | UNet |
-| **Lobes** | 3D (50x50x50 voxels) | Continuous parameters (height, radius, aspect ratio, angle, NTG) | UNet3D |
-
-All methods share the same training loop, optimizer, and EMA setup -- making this a true apples-to-apples comparison. Every method supports conditional generation with classifier-free guidance (CFG). Training supports multi-GPU/multi-node via HuggingFace Accelerate.
-
-## Why this repo?
-
-Most generative modeling repos implement a single method in isolation. If you want to understand how diffusion, flow matching, rectified flow, and MeanFlow actually compare, you'd need to stitch together 4+ separate codebases with different architectures, different data preprocessing, and different training setups -- making any comparison meaningless.
-
-This repo puts all methods on equal footing: same optimizer, same data pipeline, same training loop. The methods are model-agnostic -- swap UNet for UNet3D (or a future DiT) and everything works. The entire package is ~900 lines of PyTorch.
+- **Eight reservoir architectures from one model.** A single Flow-Matching network handles channel-belt jigsaw, channel-belt labyrinth, meander-oxbow, point-bar shoestring, sheet-distal, sheet-proximal, lobe, and delta layer types via a layer-type one-hot in the conditioning vector.
+- **Well-conditioned inpainting.** The same weights produce unconditional samples (empty mask) or well-conditioned samples (1–N vertical/L-shaped wells) — no separate "inpainting" model. Hard replacement at the final denoising step guarantees exact agreement at known voxels.
+- **Big-reservoir multi-block assembly.** Parallel block denoising with overlap blending lets you generate reservoirs of arbitrary plan size (e.g. 600×600×32) by tiling 64×64×32 blocks with hard or soft transitions between layer types. See `resflow/assembly/big_reservoir_multi.py`.
+- **Round-trip property evaluation.** A separately-trained CNN3D property predictor scores whether generated samples actually preserve the requested NTG, geometry, and azimuth.
+- **Method comparison.** Diffusion (DDPM/DDIM), Flow Matching, MeanFlow, and Rectified Flow share an apples-to-apples training loop on a smaller geological lobe benchmark. Flow Matching was chosen for the reservoir scaling work because it gave the best tradeoff between sample quality, NFE, and CFG stability — see "Methods" below.
 
 ## Quick start
 
@@ -30,55 +16,102 @@ This repo puts all methods on equal footing: same optimizer, same data pipeline,
 pip install -e .
 ```
 
-### MNIST (2D)
+End-to-end on the SiliciclasticReservoirs dataset (`AnonymouScientist/SiliciclasticReservoirs`):
 
 ```bash
-python examples/mnist/train.py      # Train all 8 models
-python examples/mnist/sample.py     # Generate samples from checkpoints
-accelerate launch examples/mnist/train.py  # Multi-GPU
+cd examples/reservoirs/inpainting
+
+# Train the well-conditioned inpainting model (auto-downloads dataset to $SCRATCH on first run)
+python train.py                        # single GPU
+sbatch run_ls6.sh                      # 4 nodes × 3 A100s on Lonestar6
+sbatch run_vista.sh                    # 8 nodes × 1 GH200  on Vista
+
+# Sample one cube per layer type, with and without 5-well "+"-pattern conditioning
+python sample_30min_demo.py
+
+# Build a 10×10 big reservoir of, say, lobe blocks with mixed scalars
+cd ../big_reservoir/lobes
+python generate.py
+python visualize.py
 ```
 
-### Lobes (3D geological volumes)
+## Datasets
 
-```bash
-python examples/lobes/train.py      # Train all 8 models
-python examples/lobes/sample.py     # Generate 3D samples from checkpoints
-accelerate launch examples/lobes/train.py  # Multi-GPU
-```
+| Dataset | Volumes | Conditioning | Role |
+|---|---|---|---|
+| **SiliciclasticReservoirs** | 1M binary 64×64×32 cubes across 8 layer-type families | layer-type one-hot + 4 universal scalars (NTG, width, depth, azimuth) + 5 family-specific scalars | **Headline.** Used for inpainting + big-reservoir assembly. |
+| **Lobes** | ~89k binary 50×50×50 single-lobe cubes | 5 continuous scalars (height, radius, aspect ratio, angle, NTG) | Smaller geological benchmark used during method comparison. |
 
-Training saves 8 checkpoints to `checkpoints/` and loss curves to `results/`. Sampling loads the checkpoints and generates conditional samples at various step counts.
-
-## Project structure
+## What's in here
 
 ```
-genflows/
+resflow/
 ├── models/
-│   ├── unet.py             # 2D UNet: class-conditional (learned embedding + null token)
-│   └── unet3d.py           # 3D UNet: continuous-conditional (MLP + learned null embedding)
+│   ├── unet3d.py            # 3D UNet, continuous-cond + learned null embedding for CFG
+│   └── cnn3d.py             # 3D CNN property predictor (round-trip evaluation)
 ├── methods/
-│   ├── diffusion.py        # DDPM + DDIM sampling (noise prediction, linear beta schedule)
-│   ├── flow_matching.py    # Flow Matching (velocity prediction, Euler integration)
-│   ├── meanflow.py         # MeanFlow (mean velocity, JVP-based training, 1-step capable)
-│   └── rectified_flow.py   # Rectified Flow (forward/backward/bidirectional reflow)
-└── utils/
-    ├── data.py             # MNIST loading (padded to 32x32, normalized to [-1,1])
-    ├── data_lobes.py       # Lobe dataset: facies loading, NTG computation, filtering, normalization
-    ├── training.py         # Training loops with EMA target network support
-    └── plotting.py         # Sample grids and loss curves
+│   ├── diffusion.py         # DDPM + DDIM sampling, x0-clipping for stable CFG
+│   ├── flow_matching.py     # OT Flow Matching, Euler integration  ← used for reservoirs
+│   ├── meanflow.py          # MeanFlow with JVP-based training, 1-step capable
+│   └── rectified_flow.py    # 2-Rectified Flow with forward/backward/bidirectional reflow
+├── utils/
+│   ├── data_reservoirs.py   # Sharded loader for SiliciclasticReservoirs
+│   ├── data_lobes.py        # Lobe dataset + on-the-fly inpaint mask wrapper
+│   ├── masking.py           # Wells / boundaries / cross-sections (3D inpainting)
+│   ├── training.py          # AdamW + cosine LR + EMA + train_model_inpaint
+│   └── plotting{,_lobes}.py # Cross-section grids, wells overlay, loss curves
+└── assembly/
+    └── big_reservoir_multi.py  # Multi-block parallel denoising with overlap blending
 
 examples/
-├── mnist/
-│   ├── train.py            # Train all methods on MNIST
-│   └── sample.py           # Generate MNIST digit grids
-└── lobes/
-    ├── train.py            # Train all methods on geological lobes
-    ├── sample.py           # Generate 3D lobe volumes
-    └── data/               # facies.npy, parameters.csv, failed_cases.npy
+├── reservoirs/                # ← centerpiece
+│   ├── inpainting/            #   training, sampling, eval-loss, 30-min smoke run
+│   └── big_reservoir/         #   per-layer-type uniform/long generators + 3-type sequence
+├── lobes/                     # smaller geological benchmark
+│   ├── standard/              #   unconditional + class-CFG generation
+│   ├── inpainting/            #   wells / boundaries / cross-sections inpainting
+│   ├── CNN/                   #   CNN3D property predictor train/evaluate
+│   └── big_reservoir/         #   lobe-only multi-block assembly (precursor to reservoirs/)
 ```
 
-## Architecture: Model ↔ Method interface
+## Reservoir details
 
-Methods and models communicate through a minimal, three-call interface:
+### Conditioning vector (18-D)
+
+```
+[ layer_one_hot (8) | NTG | width_cells | depth_cells | sin(az) | cos(az) |
+  asp | mCHsinu | mFFCHprop | probAvulInside | trunk_length_fraction ]
+```
+
+The five family-specific scalars are zeroed for layer types that don't use them. Universal scalars are normalized to the global per-feature min/max from the training cond cache. Azimuth is encoded as `(sin, cos)` for 360° periodicity.
+
+### Inpainting via channel concatenation
+
+The 3D UNet takes 3 input channels — `[noisy_x, known_data, mask]` — and outputs 1 channel. Inpaint context is set on the model via stateful `set_inpaint_context(mask, data)` / `clear_inpaint_context()`, so methods (`FlowMatching`, `Diffusion`, …) stay completely inpainting-unaware. Mask convention: `1 = known (keep)`, `0 = unknown (generate)`.
+
+Training distribution mixes unconditional and well-conditioned samples (30% empty mask, 70% with 1–5 wells), so a single set of weights serves both modes at sampling time.
+
+### Big-reservoir multi-block assembly
+
+`generate_big_reservoir_multi` tiles a grid of `BlockSpec`s across X×Y, where each block has its own layer type and per-block scalars. Adjacent blocks share an overlap region (`overlap_xy ∈ {12, 16, 24}` in our experiments) — denoising is run jointly across all blocks in parallel, with the overlapping noise updated as a smooth blend of the contributing blocks at every step. Two transition modes:
+
+- **Hard**: each block sees only its own conditioning everywhere, blending happens only in the noise update.
+- **Soft**: blocks linearly interpolate cond vectors across overlaps, producing smoother facies transitions at the cost of a small in-distribution drift inside the overlap.
+
+## Methods (comparison summary)
+
+| Method | What it learns | Sampling | NFE / sample | Notes |
+|---|---|---|---|---|
+| **Diffusion** (DDPM/DDIM) | Noise prediction | Iterative denoising | ~50 | Linear β-schedule; DDIM clips x0 + recomputes ε for CFG stability |
+| **Flow Matching** ✅ | Velocity field | Euler ODE | ~50 | Chosen for reservoirs |
+| **MeanFlow** | Mean velocity | Single-step capable | 1 (embedded CFG) or 2/step | JVP target, EMA target network |
+| **Rectified Flow** | Straightened velocity | Euler ODE | <50 | Forward / backward / bidirectional reflow on coupled pairs |
+
+We picked Flow Matching for the reservoir work because it gave clean, stable samples at ~50 steps, integrated with channel-concat inpainting without any architectural changes, and produced no visible CFG drift even at high guidance scales.
+
+## Architecture: model ↔ method decoupling
+
+Methods and models communicate through a minimal interface:
 
 ```python
 model(x, t, cond)                # conditional forward pass
@@ -86,64 +119,40 @@ model(x, t)                      # unconditional (model uses its own null repres
 model(x, t, cond, drop_mask=m)   # mixed batch for training-time CFG
 ```
 
-**Methods** decide *when* to drop conditioning and *how* to combine conditional/unconditional predictions at sampling time. **Models** decide *what* "unconditional" means internally (null class token, learned null embedding, etc.). This separation means any method works with any model -- swap UNet for UNet3D (or a future DiT/ViT) without touching the method code.
+Methods decide *when* to drop conditioning and *how* to combine cond/uncond at sampling time. Models decide *what* "unconditional" means internally (learned null embedding, null class token, …). Any method works with any model — including the inpainting variant, since inpaint context lives on the model, not the method.
 
-## Methods at a glance
+## Reproducing the reservoir results
 
-### Diffusion (DDPM/DDIM)
+```bash
+# 1. Train the FM-inpaint model on 1M cubes
+cd examples/reservoirs/inpainting
+sbatch run_ls6.sh            # or run_vista.sh
 
-Learns to predict the noise added at each timestep. Supports two samplers: DDPM (stochastic, with proper posterior variance for arbitrary step counts) and DDIM (deterministic when eta=0, allows fewer steps). DDIM clips x0 predictions and recomputes eps for consistency, preventing drift under classifier-free guidance. Uses a linear beta schedule with 1000 steps.
+# 2. Sample 8-layer-type demo (one cube per type, with and without 5 wells)
+python sample_30min_demo.py
 
-### Flow Matching
+# 3. Evaluate held-out FM loss on train/val/test
+sbatch run_eval.sh
 
-Learns a velocity field that transports samples from a standard Gaussian to the data distribution along straight-line conditional paths. Sampling integrates the learned ODE with Euler steps.
+# 4. Build big reservoirs by layer family
+cd ../big_reservoir
+python setup_uniform.py             # regenerate per-family generate.py templates
+python long_setup.py                # 1×10 long variants
+cd lobes && python generate.py && python visualize.py
 
-### Rectified Flow (2-Rectified Flow)
+# 5. Train CNN3D property predictor and run round-trip eval
+cd ../../lobes/CNN
+python train.py
+python evaluate.py
+```
 
-Starts from a trained Flow Matching model. Generates coupled (noise, data) pairs by integrating the ODE, then trains a new model on these pairs. The "reflow" operation straightens the ODE trajectories, enabling high-quality generation with fewer steps. Four variants are trained:
+Checkpoints land in `$SCRATCH/genflows_runs/...` by default; override with `RESERVOIR_DATA_DIR` and the `--ckpt` flags shown in each script.
 
-- **Forward (random init)**: fresh model trained on forward ODE pairs
-- **Forward (warm start)**: initialized from FM weights, trained on forward pairs
-- **Backward (warm start)**: initialized from FM weights, trained on backward ODE pairs (exact data → approximate noise)
-- **Bidirectional (warm start)**: trained on concatenated forward + backward pairs
+## Citation
 
-### MeanFlow
-
-Learns the *mean* velocity over a time interval rather than the instantaneous velocity. Training uses Jacobian-vector products (`torch.func.jvp`) to compute the MeanFlow identity target. The JVP target uses EMA shadow weights as a target network for stable training. Supports two CFG modes:
-
-- **Standard CFG**: guidance applied at sampling time (2 network evaluations per step)
-- **Embedded CFG**: guidance baked into the training target (Section 4.2 of the paper), enabling single-step generation with just 1 network evaluation
-
-## Models
-
-### UNet (2D, MNIST)
-
-- Hidden dims [64, 128, 256], 2 down/up stages (32→16→8)
-- Class conditioning: `nn.Embedding(num_classes + 1, time_dim)`, null token for unconditional
-- Strided conv downsampling, ConvTranspose upsampling
-
-### UNet3D (3D, Lobes)
-
-- Hidden dims [64, 64, 128, 128], 3 down/up stages (50→25→12→6)
-- MaxPool3d downsampling, trilinear interpolation upsampling (handles odd spatial dims)
-- Continuous conditioning: 5 raw inputs → angle internally converted to sin/cos for 180° periodicity → MLP → embedding added to time embedding
-- Learned null embedding vector for CFG unconditional
-- Lobe NTG computed from actual voxel data (fraction of 1s), not from simulator input parameters
-
-## Implementation details
-
-- **Training**: AdamW optimizer, lr=1e-3 with cosine annealing, gradient clipping (max_norm=1.0), EMA (decay=0.9999). EMA shadow weights double as a target network for MeanFlow's JVP computation
-- **CFG**: Methods create a `drop_mask` (10% probability) and pass it to the model via `drop_mask=` kwarg. Models apply the mask using their own null representation. At sampling time: `output = uncond + cfg_scale * (cond - uncond)`, default `cfg_scale=3.0`
-- **MNIST**: 28x28 padded to 32x32, batch size 128
-- **Lobes**: 50x50x50 binary voxels mapped to [-1,1], batch size 32. Samples with NTG < 0.05 or > 0.95 filtered out (~89k samples remain from 100k)
-
-## References
-
-- **DDPM**: Ho et al., [Denoising Diffusion Probabilistic Models](https://arxiv.org/abs/2006.11239) (2020)
-- **DDIM**: Song et al., [Denoising Diffusion Implicit Models](https://arxiv.org/abs/2010.02502) (2020)
-- **Flow Matching**: Lipman et al., [Flow Matching for Generative Modeling](https://arxiv.org/abs/2210.02747) (2022)
-- **Rectified Flow**: Liu et al., [Flow Straight and Fast](https://arxiv.org/abs/2209.03003) (2022)
-- **MeanFlow**: Geng et al., [Mean Flows for One-step Generative Modeling](https://arxiv.org/abs/2505.13447) (2025)
+```
+(submitted; under review — anonymous for double-blind submission)
+```
 
 ## License
 

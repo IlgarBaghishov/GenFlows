@@ -21,7 +21,7 @@ from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from genflows.models.cnn3d import CNN3D
+from resflow.models.cnn3d import CNN3D
 
 
 # --- Configuration (must match train.py) ---

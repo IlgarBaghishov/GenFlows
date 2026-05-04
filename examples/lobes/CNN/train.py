@@ -14,7 +14,7 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader, random_split
 from sklearn.preprocessing import StandardScaler
 
-from genflows.models.cnn3d import CNN3D
+from resflow.models.cnn3d import CNN3D
 
 
 # --- Configuration ---

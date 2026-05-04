@@ -3,14 +3,14 @@ import torch
 from torch.utils.data import DataLoader, TensorDataset
 from accelerate import Accelerator
 
-from genflows.models.unet3d import UNet3D
-from genflows.methods.diffusion import Diffusion
-from genflows.methods.flow_matching import FlowMatching
-from genflows.methods.meanflow import MeanFlow
-from genflows.methods.rectified_flow import RectifiedFlow
-from genflows.utils.data_lobes import get_lobe_loaders
-from genflows.utils.plotting import plot_loss
-from genflows.utils.training import train_model, train_reflow
+from resflow.models.unet3d import UNet3D
+from resflow.methods.diffusion import Diffusion
+from resflow.methods.flow_matching import FlowMatching
+from resflow.methods.meanflow import MeanFlow
+from resflow.methods.rectified_flow import RectifiedFlow
+from resflow.utils.data_lobes import get_lobe_loaders
+from resflow.utils.plotting import plot_loss
+from resflow.utils.training import train_model, train_reflow
 
 
 def main():

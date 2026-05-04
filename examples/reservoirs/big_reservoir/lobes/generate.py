@@ -3,7 +3,7 @@
 Mirrors the gradient-pattern of examples/lobes/big_reservoir/generate.py
 (size-related scalars decrease along Y, azimuth varies along X, NTG fixed)
 but uses the SiliciclasticReservoirs 3-channel inpaint model and the
-multi-block parallel denoiser in genflows.assembly.
+multi-block parallel denoiser in resflow.assembly.
 
 Layer type is fixed = "lobe" everywhere, so the conditioning differs only
 in the per-block scalars (width_cells, depth_cells, asp, azimuth).
@@ -20,9 +20,9 @@ import time
 import numpy as np
 import torch
 
-from genflows.models.unet3d import UNet3D
-from genflows.methods.flow_matching import FlowMatching
-from genflows.assembly import (
+from resflow.models.unet3d import UNet3D
+from resflow.methods.flow_matching import FlowMatching
+from resflow.assembly import (
     BlockSpec, COND_DIM, LAYER_TYPE_TO_IDX,
     generate_big_reservoir_multi,
 )

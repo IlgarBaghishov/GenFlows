@@ -25,11 +25,11 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, Subset
 from torch.utils.data.distributed import DistributedSampler
 
-from genflows.models.unet3d import UNet3D
-from genflows.utils.data_reservoirs import (
+from resflow.models.unet3d import UNet3D
+from resflow.utils.data_reservoirs import (
     COND_DIM, ReservoirDataset, VOLUME_SHAPE,
 )
-from genflows.utils.masking import InpaintDataset
+from resflow.utils.masking import InpaintDataset
 
 
 def setup_dist():

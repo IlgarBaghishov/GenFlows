@@ -4,11 +4,11 @@ import numpy as np
 import torch
 from accelerate import Accelerator
 
-from genflows.models.unet3d import UNet3D
-from genflows.methods.flow_matching import FlowMatching
-from genflows.utils.data_lobes import get_lobe_inpaint_loaders
-from genflows.utils.plotting import plot_loss
-from genflows.utils.training import train_model_inpaint
+from resflow.models.unet3d import UNet3D
+from resflow.methods.flow_matching import FlowMatching
+from resflow.utils.data_lobes import get_lobe_inpaint_loaders
+from resflow.utils.plotting import plot_loss
+from resflow.utils.training import train_model_inpaint
 
 # --- Configuration ---
 EPOCHS_PER_RUN = 25

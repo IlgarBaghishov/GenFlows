@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -J genflows-res-inp
+#SBATCH -J resflow-res-inp
 #SBATCH -N 4
 #SBATCH --ntasks-per-node=1
 #SBATCH -p gpu-a100

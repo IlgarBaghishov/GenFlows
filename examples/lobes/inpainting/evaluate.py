@@ -10,17 +10,17 @@ import time
 import numpy as np
 import torch
 
-from genflows.models.unet3d import UNet3D
-from genflows.methods.diffusion import Diffusion
-from genflows.methods.flow_matching import FlowMatching
-from genflows.methods.meanflow import MeanFlow
-from genflows.methods.rectified_flow import RectifiedFlow
-from genflows.utils.data_lobes import get_lobe_loaders
-from genflows.utils.masking_lobes import (
+from resflow.models.unet3d import UNet3D
+from resflow.methods.diffusion import Diffusion
+from resflow.methods.flow_matching import FlowMatching
+from resflow.methods.meanflow import MeanFlow
+from resflow.methods.rectified_flow import RectifiedFlow
+from resflow.utils.data_lobes import get_lobe_loaders
+from resflow.utils.masking_lobes import (
     generate_well_mask, generate_boundary_mask, generate_cross_section_mask,
     generate_combination_mask, apply_inpaint_output,
 )
-from genflows.utils.evaluation import (
+from resflow.utils.evaluation import (
     LobePropertyPredictor, compute_rmse, compute_r2, resolve_angle_ambiguity, plot_parity,
 )
 

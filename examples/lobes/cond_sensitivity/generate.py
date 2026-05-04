@@ -14,8 +14,8 @@ import time
 import numpy as np
 import torch
 
-from genflows.models.unet3d import UNet3D
-from genflows.methods.flow_matching import FlowMatching
+from resflow.models.unet3d import UNet3D
+from resflow.methods.flow_matching import FlowMatching
 
 # ---- Configuration --------------------------------------------------------
 
