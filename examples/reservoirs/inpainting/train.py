@@ -25,9 +25,17 @@ from genflows.utils.plotting import plot_loss
 from genflows.utils.training import train_model_inpaint
 
 
+# Resolution order:
+#   1. RESERVOIR_DATA_DIR (explicit override)
+#   2. $SCRATCH/SiliciclasticReservoirs (works on Vista, Lonestar6, Perlmutter, ...)
+#   3. ./SiliciclasticReservoirs (last-resort fallback)
+# Auto-downloaded on first use by ReservoirDataset._ensure_dataset_local
+# (no-op when files are already present), so a single `python train.py` is enough.
+_scratch = os.environ.get('SCRATCH')
 DEFAULT_DATA_DIR = os.environ.get(
     'RESERVOIR_DATA_DIR',
-    '/scratch/11316/rustamzade17/SiliciclasticReservoirs',
+    os.path.join(_scratch, 'SiliciclasticReservoirs') if _scratch
+    else os.path.abspath('SiliciclasticReservoirs'),
 )
 CHECKPOINT_DIR = 'checkpoints'
 SAVE_EVERY = 5  # checkpoint every 5 epochs (~1.5 h on 8-node Vista)

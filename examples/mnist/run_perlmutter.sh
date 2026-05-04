@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -J genflows
-#SBATCH --account=m1883_g
+#SBATCH --account=ALLOCATION_NAME  # set to your NERSC project allocation (e.g. xxxxxx_g)
 #SBATCH --constraint=gpu
 #SBATCH --gpus-per-node=4
 #SBATCH --output=slurm_minimal_%j.log

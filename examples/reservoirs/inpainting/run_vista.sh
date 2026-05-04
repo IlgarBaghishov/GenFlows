@@ -3,19 +3,33 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH -p gh
 #SBATCH -t 36:00:00
-#SBATCH -o ll_out
-#SBATCH -A CHE21006
+#SBATCH -o ll_out_%j
+#SBATCH -A ALLOCATION_NAME  # set to your TACC allocation
 
-source /work/11316/rustamzade17/vista/miniforge3/etc/profile.d/conda.sh
+# Vista launcher for reservoir well-conditioning (inpainting) training.
+
+# --- environment ----------------------------------------------------------
+# Project env (created with: conda create -n genflows python=3.12 -y && pip install -e .)
+source $WORK/vista/miniforge3/etc/profile.d/conda.sh
 conda activate genflows
 
+# --- DDP rendezvous -------------------------------------------------------
 MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n1)
 MASTER_PORT=29500
 
-cd /work/11316/rustamzade17/vista/codes/GenFlows/examples/reservoirs/inpainting
+# --- run directory on $SCRATCH -------------------------------------------
+RUN_DIR=$SCRATCH/genflows_runs/reservoirs_inpainting
+mkdir -p "$RUN_DIR"
 
-export RESERVOIR_DATA_DIR=/scratch/11316/rustamzade17/SiliciclasticReservoirs
+TRAIN_PY="$SLURM_SUBMIT_DIR/train.py"
 
+# train.py defaults to $SCRATCH/SiliciclasticReservoirs and auto-downloads
+# if missing. Override only if you keep the dataset somewhere else:
+# export RESERVOIR_DATA_DIR=/path/to/SiliciclasticReservoirs
+
+cd "$RUN_DIR"
+echo "RUN_DIR  = $RUN_DIR"
+echo "TRAIN_PY = $TRAIN_PY"
 date
 srun torchrun \
   --nnodes=$SLURM_NNODES \
@@ -23,5 +37,5 @@ srun torchrun \
   --rdzv_id=$SLURM_JOB_ID \
   --rdzv_backend=c10d \
   --rdzv_endpoint=${MASTER_ADDR}:${MASTER_PORT} \
-  train.py
+  "$TRAIN_PY"
 date

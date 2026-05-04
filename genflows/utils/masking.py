@@ -3,7 +3,7 @@
 Conventions (used uniformly by both lobes and reservoirs after the
 2026-04-29 fix):
   - cube tensor is (C, X, Y, Z); z is the LAST spatial axis. Matches the
-    GeoRules engine's on-disk (nx, ny, nz) layout.
+    custom geological package's on-disk (nx, ny, nz) layout.
   - z is ELEVATION: z=0 is the paleo-floor, z=Z-1 is the depositional
     surface. A well drills from the surface (z=Z-1) DOWN to lower z, so
     its direction has d_z <= 0.

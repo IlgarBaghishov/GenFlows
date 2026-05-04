@@ -1,4 +1,4 @@
-"""DataLoader for SciLM-ai/SiliciclasticReservoirs (binary facies + slim params).
+"""DataLoader for AnonymouScientist/SiliciclasticReservoirs (binary facies + slim params).
 
 Mirrors the structure of ``data_lobes.py`` but works against a sharded HuggingFace
 dataset with 1M samples across 8 reservoir architectures. Per dataset README:
@@ -49,6 +49,16 @@ COND_DIM = NUM_LAYERS + len(UNIVERSAL_CONT) + 2 + len(FAMILY_CONT)  # 8 + 3 + 2 
 
 # Map from internal split name -> filename (HF release uses 'validation').
 _SPLIT_FILENAMES = {'train': 'train', 'val': 'validation', 'test': 'test'}
+
+
+def _read_parquet(path):
+    """pq.read_table that goes through Python's open() instead of pyarrow's
+    file handling. Works around an `OSError: [Errno 14] Bad address` from
+    pyarrow when reading parquet directly off TACC's BeeGFS $SCRATCH. The
+    parquet files we touch (splits + per-shard params_slim) are at most a
+    few MB, so the buffer copy is free."""
+    with open(path, 'rb') as f:
+        return pq.read_table(f)
 
 
 class ReservoirDataset(Dataset):
@@ -102,7 +112,7 @@ class ReservoirDataset(Dataset):
 
     # -- dataset auto-download --------------------------------------------
     def _ensure_dataset_local(self):
-        """Fetch the binary-facies subset of SciLM-ai/SiliciclasticReservoirs
+        """Fetch the binary-facies subset of AnonymouScientist/SiliciclasticReservoirs
         into self.data_dir if it isn't already there.
 
         Skipped silently if every file we need is present (saves the HF API
@@ -129,7 +139,7 @@ class ReservoirDataset(Dataset):
 
         self.data_dir.mkdir(parents=True, exist_ok=True)
         snapshot_download(
-            repo_id="SciLM-ai/SiliciclasticReservoirs",
+            repo_id="AnonymouScientist/SiliciclasticReservoirs",
             repo_type="dataset",
             local_dir=str(self.data_dir),
             allow_patterns=[
@@ -145,7 +155,7 @@ class ReservoirDataset(Dataset):
     # -- cache build ------------------------------------------------------
     def _build_cache(self, cache_path):
         split_file = _SPLIT_FILENAMES[self.split]
-        split_table = pq.read_table(self.data_dir / 'splits' / f'{split_file}.parquet')
+        split_table = _read_parquet(self.data_dir / 'splits' / f'{split_file}.parquet')
         ltype = split_table['layer_type'].to_pylist()
         shard_dir_list = split_table['shard_dir'].to_pylist()
         sample_idx = np.asarray(split_table['sample_idx'].to_pylist(), dtype=np.int32)
@@ -168,7 +178,7 @@ class ReservoirDataset(Dataset):
 
         for s, row_ids in tqdm(by_shard.items(),
                                desc=f'Building {self.split} cond cache'):
-            t = pq.read_table(self.data_dir / s / 'params_slim.parquet')
+            t = _read_parquet(self.data_dir / s / 'params_slim.parquet')
             cols = set(t.column_names)
             cached = {c: t[c].to_numpy(zero_copy_only=False)
                       for c in (CONT_COLS + [ANGLE_COL]) if c in cols}

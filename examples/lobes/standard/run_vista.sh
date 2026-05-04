@@ -4,7 +4,7 @@
 #SBATCH -p gh-dev
 #SBATCH -t 2:00:00
 #SBATCH -o ll_out
-#SBATCH -A CHE25011
+#SBATCH -A ALLOCATION_NAME  # set to your TACC allocation
 
 MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n1)
 MASTER_PORT=29500

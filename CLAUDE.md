@@ -49,9 +49,12 @@ examples/
 │       ├── sample.py      # Generate inpainted 3D samples
 │       └── sample_and_plot.ipynb
 └── reservoirs/
-    └── standard/          # SiliciclasticReservoirs binary-facies flow matching
-        ├── train.py       # Trains FM on full 1M cubes; data dir defaults to $SCRATCH
-        └── run_vista.sh   # 4-node Vista launcher
+    └── inpainting/        # Wells-only inpainting on SiliciclasticReservoirs
+        ├── train.py       # Trains FM-inpaint on full 1M cubes; data dir defaults to $SCRATCH
+        ├── train_30min.py # ~30-min smoke run on a 3-A100 node (50K subset)
+        ├── sample_30min_demo.py  # Demo: 8 layer types × {uncond, 5-well "+"} -> 3 cross-sections
+        ├── run_ls6.sh     # Lonestar6 launcher (4 nodes × 3 A100s)
+        └── run_vista.sh   # Vista launcher (8 nodes × 1 GH200)
 
 meanflow_paper_latex/      # LaTeX source for the MeanFlow paper
 meanflow.pdf               # Compiled paper
@@ -69,10 +72,12 @@ This installs the `genflows` package and all dependencies (torch, torchvision, m
 > The `torch` dep in `pyproject.toml` is unpinned and *will* upgrade an
 > existing torch (it has done so silently in the past, breaking other
 > packages in shared envs). Default to proposing a **fresh project-named
-> env** (e.g. `conda create -n genflows python=3.11 -y && conda activate
+> env** (e.g. `conda create -n genflows python=3.12 -y && conda activate
 > genflows && pip install -e .`) and let the user confirm or pick a name.
 > Convenience of an existing env that "happens to have torch" is **not** a
 > reason to install there.
+>
+> **Default to Python 3.12 for new envs unless the user specifies otherwise.**
 
 ## Running
 
@@ -99,16 +104,21 @@ python sample.py                   # Generate inpainted samples
 accelerate launch train.py         # Multi-GPU
 ```
 
-### Reservoirs (3D, SiliciclasticReservoirs)
+### Reservoirs (3D, SiliciclasticReservoirs) — well-conditioned inpainting
 ```bash
-cd examples/reservoirs/standard
-# Dataset defaults to /scratch/.../SiliciclasticReservoirs.
-# Override: RESERVOIR_DATA_DIR=/path/to/dataset python train.py
+cd examples/reservoirs/inpainting
+# Dataset defaults to $SCRATCH/SiliciclasticReservoirs (auto-downloaded
+# on first use). Override: RESERVOIR_DATA_DIR=/path/to/dataset python train.py
 python train.py                    # Single GPU
-sbatch run_vista.sh                # Multi-node Vista launcher
+sbatch run_ls6.sh                  # Lonestar6 (4 nodes × 3 A100s)
+sbatch run_vista.sh                # Vista (8 nodes × 1 GH200)
 ```
-First run builds a per-split cond cache under `<data_dir>/_cond_cache/`
-(~10 s after the per-shard parquet sweep) so subsequent runs start instantly.
+The 3-channel inpainting model handles **both** unconditional generation
+(empty mask = 30% of training samples) and well-conditioned generation
+(non-empty mask) from a single set of weights, so there is no separate
+"standard" variant for reservoirs. First run builds a per-split cond
+cache under `<data_dir>/_cond_cache/` (~10 s after the per-shard parquet
+sweep) so subsequent runs start instantly.
 
 ## Architecture: Model ↔ Method Interface
 

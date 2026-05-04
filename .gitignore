@@ -4,10 +4,14 @@ __pycache__/
 *.egg-info/
 *.pt
 *.pth
+*.npy
+*.npz
 
 checkpoints/
 results/
+figures/
 data/
 meanflow_paper_latex/
 
-slurm*.log
+*.log
+ll_out_*
